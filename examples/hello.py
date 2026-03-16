@@ -1,5 +1,5 @@
-from noagent import Message, Conversation, build_context
-from noagent.mock import EchoLLM
+from xmachina import Message, Conversation, build_context
+from xmachina.mock import EchoLLM
 
 
 def main():

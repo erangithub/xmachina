@@ -1,7 +1,7 @@
 import json
 
-from noagent import Message, Conversation, build_context
-from noagent.mock import ToolCallLLM, get_weather, tool_schemas
+from xmachina import Message, Conversation, build_context
+from xmachina.mock import ToolCallLLM, get_weather, tool_schemas
 
 
 def main():

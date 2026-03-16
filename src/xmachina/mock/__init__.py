@@ -1,12 +1,12 @@
 """
-noagent.mock — development and testing utilities
+xmachina.mock — development and testing utilities
 
 These are not production components. They are the simplest possible
 implementations of the LLM interface, useful for unit tests and examples
 without any external dependencies.
 """
 import json
-from noagent import Message, ToolCall
+from xmachina import Message, ToolCall
 
 
 # ---------------------------------------------------------------------------
