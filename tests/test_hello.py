@@ -1,4 +1,5 @@
-from noagent import Message, Conversation, build_context, EchoLLM
+from noagent import Message, Conversation, build_context
+from noagent.mock import EchoLLM
 
 
 def test_hello_world():

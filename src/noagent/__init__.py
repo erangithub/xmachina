@@ -3,9 +3,18 @@ from typing import Iterator
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: str          # JSON string — matches OpenAI standard
+ 
+ 
+@dataclass(frozen=True)
 class Message:
     role: str
-    content: str
+    content: str | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None     # for role == "tool"
 
 
 @dataclass(frozen=True)
@@ -33,13 +42,13 @@ class Conversation:
         return log
 
 
-def events(log: Conversation) -> Iterator[Message]:
-    stack, node = [], log.head
-    while node:
-        stack.append(node.message)
-        node = node.parent
-    while stack:
-        yield stack.pop()
+    def messages(self) -> Iterator[Message]:
+        stack, node = [], self.head
+        while node:
+            stack.append(node.message)
+            node = node.parent
+        while stack:
+            yield stack.pop()
 
 
 def build_context(
@@ -53,14 +62,8 @@ def build_context(
         context.append(Message("system", system))
     for text in (injections or []):
         context.append(Message("system", text))
-    history = list(events(log))
+    history = list(log.messages())
     if window:
         history = history[-window:]
     context.extend(history)
     return context
-
-
-class EchoLLM:
-    def complete(self, context: list[Message]) -> Message:
-        last_user = next(m for m in reversed(context) if m.role == "user")
-        return Message("assistant", f"echo: {last_user.content}")
