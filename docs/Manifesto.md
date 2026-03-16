@@ -67,7 +67,9 @@ state  = what it means
 
 These are different things. They live in different places. Most frameworks collapse them into a single mutable object. When that happens you lose the ability to reason about either independently — and you lose something more valuable: **deterministic replay**.
 
-Because the log is immutable and state is a pure fold, the same log always produces the same state. That means you can replay any conversation exactly. You can audit decisions. You can run evals against historical data. You can debug by rewinding to any point. These are not features you add later — they are consequences of keeping log and state separate from the start.
+Because the log is immutable and state is a pure fold over recorded events, you can always reconstruct the state at any point in a conversation from the log alone. The log is the ground truth. Nothing is lost. Nothing is hidden. The LLM is non-deterministic — but its outputs are recorded in the log. State is derived from those recorded outputs, not from re-running the model. **You don't need the model to be deterministic. You need the log to be honest.**
+
+That means you can replay any conversation, audit any decision, run evals against historical data, and debug by rewinding to any point. These are not features you add later — they are consequences of keeping log and state separate from the start.
 
 ### 4. The view is ephemeral
 
@@ -100,22 +102,34 @@ class Message:
     tool_call_id: str | None = None
 ```
 
+### Delta
+
+A fragment in flight during streaming. Never touches the log — the log only advances once the full message is assembled.
+
+```python
+@dataclass(frozen=True)
+class Delta:
+    content: str    # a fragment, not a complete message
+```
+
 ### Conversation
 
-A persistent immutable tree. Each node points to its parent. Branching is O(1) — shared history is never copied. The structure is identical to a Git commit graph.
+A persistent immutable tree. Each node points to its parent and records its depth. Branching is O(1) — shared history is never copied. The structure is identical to a Git commit graph.
 
 ```python
 @dataclass(frozen=True)
 class EventNode:
     message: Message
-    parent: "EventNode | None"
+    parent: EventNode | None
+    depth: int              # O(1) length — depth of this node from root
 
 @dataclass(frozen=True)
 class Conversation:
     head: EventNode | None = None
 
-    def append(self, msg: Message) -> "Conversation":
-        return Conversation(head=EventNode(message=msg, parent=self.head))
+    def append(self, msg: Message) -> Conversation:
+        depth = (self.head.depth + 1) if self.head else 0
+        return Conversation(head=EventNode(message=msg, parent=self.head, depth=depth))
 
     def messages(self) -> Iterator[Message]:
         """Lazy walk from head to root, chronological order."""
@@ -126,8 +140,11 @@ class Conversation:
         while stack:
             yield stack.pop()
 
+    def __len__(self) -> int:
+        return (self.head.depth + 1) if self.head else 0
+
     @staticmethod
-    def start(*messages: Message) -> "Conversation":
+    def start(*messages: Message) -> Conversation:
         log = Conversation()
         for msg in messages:
             log = log.append(msg)

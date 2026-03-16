@@ -6,7 +6,9 @@ implementations of the LLM interface, useful for unit tests and examples
 without any external dependencies.
 """
 import json
-from xmachina import Message, ToolCall
+import asyncio
+from typing import AsyncIterator
+from xmachina import Message, Delta, ToolCall
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +21,12 @@ class EchoLLM:
     def complete(self, context: list[Message]) -> Message:
         last_user = next(m for m in reversed(context) if m.role == "user")
         return Message("assistant", f"echo: {last_user.content}")
+
+    async def stream(self, context: list[Message]) -> AsyncIterator[Delta]:
+        last_user = next(m for m in reversed(context) if m.role == "user")
+        for word in f"echo: {last_user.content}".split():
+            await asyncio.sleep(0.2)
+            yield Delta(content=word + " ")
 
 
 class ToolCallLLM:
@@ -50,6 +58,14 @@ class ToolCallLLM:
                 ),
             ),
         )
+
+    async def stream(self, context: list[Message]) -> AsyncIterator[Delta]:
+        """Streams the complete() result word by word."""
+        response = self.complete(context)
+        if response.content:
+            for word in response.content.split():
+                await asyncio.sleep(0.05)
+                yield Delta(content=word + " ")
 
 
 # ---------------------------------------------------------------------------
