@@ -74,7 +74,7 @@ while not state.done:
     response = llm.complete(context)
     log      = log.append(response)
     state    = evolve(state, response)
-
+```
 Everything else is a variation of this loop.
 
 ### 2. The log is appended to by your code
