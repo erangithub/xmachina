@@ -57,17 +57,23 @@ These are universal. The implementation below happens to be Python.
 The LLM reasons within a step. Your code decides whether to take another step. The loop is yours — not the framework's, not the LLM's. There is no runner executing on your behalf. There is no graph deciding what happens next. There is a `while` loop that you wrote, that you can read, that you can stop.
 
 ```python
-# evolve is a function you write. It takes the current state and one message, and
-# returns the next state. XMachina doesn't provide it — the domain logic is yours.
-def evolve(state: MyState, message: Message) -> MyState:
-    ...
+# evolve is a function you write.
+def evolve(state: MyState, message: Message) -> MyState: ...
+
+# render_system_prompt is your code
+def render_system_prompt(state: MyState) -> str: ...
+
+log   = Conversation.start()
+state = MyState()
 
 while not state.done:
-    context  = build_context(log, system=str(state))
+    request  = Message("user", get_user_input())
+    log      = log.append(request)
+    state    = evolve(state, request)
+    context  = build_context(log, system=render_system_prompt(state))
     response = llm.complete(context)
     log      = log.append(response)
     state    = evolve(state, response)
-```
 
 Everything else is a variation of this loop.
 
