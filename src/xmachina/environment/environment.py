@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator, Callable, TypeVar, Generic
-from xmachina import Message, Delta, EventLog
+from xmachina import Message, Delta, EventLog, ToolCall
 from xmachina.llms.base import LLM
 
 
@@ -83,12 +83,14 @@ class Environment:
         self._write(Message(role="assistant", content="".join(d.content for d in deltas)))
         yield from deltas
 
-    def call_tool(self, name: str, tool_call_id: str, arguments: dict) -> str:
+    def call_tool(self, tool_call: ToolCall) -> str:
+        import json
+        args = json.loads(tool_call.arguments)
         def fn():
-            tool = next(t for t in self.tools if t.name == name)
-            return tool.fn(**arguments)
+            tool = next(t for t in self.tools if t.name == tool_call.name)
+            return tool.fn(**args)
         return self._invoke(
-            to_message=lambda r: Message(role="tool", content=r, tool_call_id=tool_call_id),
+            to_message=lambda r: Message(role="tool", content=r, tool_call_id=tool_call.id),
             fn=fn,
             expected_role="tool",
         )

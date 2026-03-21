@@ -22,12 +22,12 @@ Three separations follow naturally:
 
 This is **[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html)** applied to LLM conversations.
 
-| Event Sourcing | XMachina                                               |
-| -------------- | ------------------------------------------------------ |
-| Event Store    | `EventLog` (immutable tree, O(1) branching)            |
-| Event          | `Message`                                              |
-| Projection     | `evolve(state, message)` — you write this              |
-| Read Model     | `build_context` — ephemeral, discarded after each call |
+| Event Sourcing | XMachina                                                 |
+| -------------- | -------------------------------------------------------- |
+| Event Store    | `EventLog` (immutable tree, O(1) branching)              |
+| Event          | `Message`                                                |
+| Projection     | `evolve(state, message)` — you write this                |
+| Read Model     | `build_context` — ephemeral, discarded after each call   |
 | Command        | `env.input()` / `env.llm_complete()` / `env.call_tool()` |
 
 The canonical loop:
@@ -37,9 +37,15 @@ env = live(llm=MyLLM(), input_fn=input)
 # or: env = replay(saved_log, continue_live=True)
 
 while True:
+    # live: get user input, write to log     | replay: read from log
     request  = env.input()
-    context  = build_context(env.log)
-    response = env.llm_complete(context)
+    while True:
+        context  = build_context(env.log)
+        # live: call llm, record result to log   | replay: read from log
+        response = env.llm_complete(context)
+        if not response.tool_calls: break
+        # live: run tools, record results to log | replay: read from log
+        for tc in response.tool_calls: env.call_tool(tc)
 ```
 
 Everything else — memory, checkpointing, branching, multi-agent, streaming — is a variation of this loop.
@@ -65,9 +71,9 @@ This installs xmachina with its only dependency: `openai>=1.0`.
 ```python
 from xmachina import Message, EventLog, build_context
 from xmachina.llms import OpenAILLM
-from xmachina.environment import live
+from xmachina.environment import live, Tool
 
-env = live(llm=OpenAILLM(), input_fn=input)
+env = live(llm=OpenAILLM(), tools=tools, input_fn=input)
 
 while True:
     user_input = env.input()

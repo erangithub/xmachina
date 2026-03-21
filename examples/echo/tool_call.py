@@ -33,8 +33,7 @@ def main():
 
         if response.tool_calls:
             for tool_call in response.tool_calls:
-                args = json.loads(tool_call.arguments)
-                env.call_tool(tool_call.name, tool_call.id, args)
+                env.call_tool(tool_call)
         else:
             break
 
