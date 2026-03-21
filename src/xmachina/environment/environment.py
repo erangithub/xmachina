@@ -95,8 +95,12 @@ class Environment:
 
 
 def replay(log: EventLog, llm: LLM | None = None, tools: list[Tool] | None = None, input_fn: Callable[[], str] | None = None, continue_live: bool = False) -> Environment:
+    if continue_live and input_fn is None:
+        raise ValueError("input_fn is required when continue_live is True")
     return Environment(log=log, readhead=iter(log.messages()), llm=llm, tools=tools, input_fn=input_fn, continue_live=continue_live)
 
 
 def live(llm: LLM, tools: list[Tool] | None = None, input_fn: Callable[[], str] | None = None) -> Environment:
+    if input_fn is None:
+        raise ValueError("input_fn is required in live mode")
     return Environment(log=EventLog(), readhead=None, llm=llm, tools=tools, input_fn=input_fn)

@@ -7,7 +7,7 @@ def test_streaming():
     log = EventLog()
     log = log.append(Message("user", "hello"))
     log = log.append(Message("assistant", "echo: hello"))
-    env = replay(log, llm=EchoLLM(), continue_live=True)
+    env = replay(log, llm=EchoLLM(), input_fn=lambda: "", continue_live=True)
     env.input()  # replays user message
 
     full_content = ""
