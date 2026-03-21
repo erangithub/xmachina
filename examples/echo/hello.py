@@ -6,7 +6,7 @@ def main():
     log = EventLog()
     log = log.append(Message("user", "hello"))
     log = log.append(Message("assistant", "echo: hello"))
-    env = replay(log, llm=EchoLLM(), continue_live=True)
+    env = replay(log, llm=EchoLLM(), continue_live=True, input_fn=input)
     env.input()
     response = env.llm_complete(build_context(env.log))
     print(response)

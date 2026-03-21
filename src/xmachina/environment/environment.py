@@ -47,10 +47,12 @@ class Environment:
             self.readhead = None
         return result
 
-    def _invoke(self, to_message: Callable[[T], Message], fn: Callable[[], T]) -> T:
+    def _invoke(self, to_message: Callable[[T], Message], fn: Callable[[], T], expected_role: str) -> T:
         if self.is_replay:
             result = self._read()
             if result is not None:
+                if result.role != expected_role:
+                    raise RuntimeError(f"Expected {expected_role}, got {result.role}")
                 return to_message(result)
             if not self.continue_live:
                 raise RuntimeError("Replay exhausted")
@@ -62,12 +64,15 @@ class Environment:
         return self._invoke(
             to_message=lambda m: m,
             fn=lambda: self.llm.complete(messages),
+            expected_role="assistant",
         )
 
     def llm_stream(self, messages: list[Message]) -> Iterator[Delta]:
         if self.is_replay:
             result = self._read()
             if result is not None:
+                if result.role != "assistant":
+                    raise RuntimeError(f"Expected assistant, got {result.role}")
                 if result.content:
                     for word in result.content.split():
                         yield Delta(word + " ")
@@ -85,12 +90,14 @@ class Environment:
         return self._invoke(
             to_message=lambda r: Message(role="tool", content=r, tool_call_id=tool_call_id),
             fn=fn,
+            expected_role="tool",
         )
 
     def input(self) -> str:
         return self._invoke(
             to_message=lambda t: Message(role="user", content=t),
             fn=self.input_fn,
+            expected_role="user",
         )
 
 
