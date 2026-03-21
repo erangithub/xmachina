@@ -1,10 +1,9 @@
 from xmachina import Message, Conversation, build_context
-#from xmachina.mock import EchoLLM
-from xmachina.llms import LMStudioLLM  # or OllamaLLM
+from xmachina.mock import EchoLLM
 
 def main():
-    llm = LMStudioLLM()
-    conversation = Conversation.start(Message("user", "what is 2 plus 5"))
+    llm = EchoLLM()
+    conversation = Conversation.start(Message("user", "hello"))
     context = build_context(conversation)
     response = llm.complete(context)
     conversation = conversation.append(response)
