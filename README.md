@@ -20,7 +20,7 @@ Three separations follow naturally:
 - **State vs view** — `build_context` assembles what the LLM sees, ephemerally, from state
 - **Live vs replay** — swap the environment to replay any session exactly, no mocks needed
 
-This is **event sourcing** applied to LLM conversations.
+This is **[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html)** applied to LLM conversations.
 
 | Event Sourcing | XMachina                                               |
 | -------------- | ------------------------------------------------------ |
