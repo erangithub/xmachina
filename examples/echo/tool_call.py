@@ -1,6 +1,6 @@
 import json
 
-from xmachina import Message, Conversation, build_context
+from xmachina import Message, EventLog, build_context
 from xmachina.mock import ToolCallLLM, get_weather, tool_schemas
 
 
@@ -14,7 +14,7 @@ def main():
     )
     tool_injections = [json.dumps(s) for s in tool_schemas]
 
-    conversation = Conversation.start(
+    conversation = EventLog.start(
         Message("user", "what's the weather in london?")
     )
 

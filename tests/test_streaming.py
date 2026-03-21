@@ -1,12 +1,12 @@
 import pytest
-from xmachina import Message, Conversation, build_context
+from xmachina import Message, EventLog, build_context
 from xmachina.mock import EchoLLM
 
 
 @pytest.mark.asyncio
 async def test_streaming():
     llm = EchoLLM()
-    conversation = Conversation.start(Message("user", "hello"))
+    conversation = EventLog.start(Message("user", "hello"))
     context = build_context(conversation)
 
     full_content = ""

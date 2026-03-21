@@ -91,19 +91,19 @@ Most frameworks collapse them into a single mutable object. When that happens yo
 ```python
 # MyState() is your initial state, whatever that means for your domain
 state        = MyState()
-conversation = Conversation.start(Message("user", prompt))
-state        = evolve(state, conversation.head.message)
+log   = EventLog.start(Message("user", prompt))
+state = evolve(state, log.head.message)
 
 while not state.done:
-    context      = build_context(conversation, system=str(state))
-    response     = llm.complete(context)
-    conversation = conversation.append(response)   # log records what happened
-    state        = evolve(state, response)          # state learns what it means
+    context  = build_context(log, system=str(state))
+    response = llm.complete(context)
+    log      = log.append(response)   # log records what happened
+    state    = evolve(state, response)          # state learns what it means
 
     if state.needs_tool:
         result   = run_tool(state.tool_call)
         tool_msg = Message("tool", result)
-        conversation = conversation.append(tool_msg)
+        log = log.append(tool_msg)
         state    = evolve(state, tool_msg)
 ```
 
@@ -152,7 +152,7 @@ class Delta:
     content: str    # a fragment, not a complete message
 ```
 
-### Conversation
+### EventLog
 
 A persistent immutable tree. Each node points to its parent and records its depth. Branching is O(1) — shared history is never copied. The structure is identical to a Git commit graph.
 
@@ -164,12 +164,12 @@ class EventNode:
     depth: int              # O(1) length — depth of this node from root
 
 @dataclass(frozen=True)
-class Conversation:
+class EventLog:
     head: EventNode | None = None
 
-    def append(self, msg: Message) -> Conversation:
+    def append(self, msg: Message) -> EventLog:
         depth = (self.head.depth + 1) if self.head else 0
-        return Conversation(head=EventNode(message=msg, parent=self.head, depth=depth))
+        return EventLog(head=EventNode(message=msg, parent=self.head, depth=depth))
 
     def messages(self) -> Iterator[Message]:
         """Lazy walk from head to root, chronological order."""
@@ -184,8 +184,8 @@ class Conversation:
         return (self.head.depth + 1) if self.head else 0
 
     @staticmethod
-    def start(*messages: Message) -> Conversation:
-        log = Conversation()
+    def start(*messages: Message) -> EventLog:
+        log = EventLog()
         for msg in messages:
             log = log.append(msg)
         return log
@@ -197,7 +197,7 @@ The one place the event stream is materialised. Dumb assembly — takes pre-comp
 
 ```python
 def build_context(
-    log: Conversation,
+    log: EventLog,
     system: str | None = None,
     injections: list[str] | None = None,
     window: int | None = None,
@@ -222,13 +222,13 @@ XMachina is event sourcing — as described by Martin Fowler in 2005 — applied
 
 The reason the mapping is exact is that both problems are the same problem: **you have a sequence of things that happened, and you need to derive current state without mutating history.** Whether the events are database writes or LLM messages is incidental. The architecture that solves one solves the other.
 
-| Event Sourcing | XMachina                         |
-| -------------- | -------------------------------- |
-| Event Store    | `Conversation` (persistent tree) |
-| Event          | `Message`                        |
-| Projection     | `evolve(state, message)`         |
-| Read Model     | `build_context`                  |
-| Command        | LLM call + your code             |
+| Event Sourcing | XMachina                     |
+| -------------- | ---------------------------- |
+| Event Store    | `EventLog` (persistent tree) |
+| Event          | `Message`                    |
+| Projection     | `evolve(state, message)`     |
+| Read Model     | `build_context`              |
+| Command        | LLM call + your code         |
 
 Database engineers reached for this because mutable shared state is a liability at scale. LLM frameworks reached for a different pattern. XMachina doesn't invent a new paradigm. It asks: **what if we used the one that already works?**
 
@@ -250,7 +250,7 @@ The test: **could you rewrite it without the framework and still know exactly wh
 
 **Multi-agent coordination.** Fan-out and fold-back via the swarm pattern handles the common case. True peer-to-peer communication between agents mid-run is an open problem — and equally open in every same-process framework. The difference is we say so.
 
-**Persistence.** XMachina is in-process. A `Conversation` maps naturally onto any append-only store — SQLite, Postgres, S3, a log file. The structure is simple: serialise by walking `log.messages()`, deserialise by replaying into `Conversation.start()`. Resuming across processes, syncing across nodes, storing branches — your problem, but a tractable one. The immutable tree makes any serialisation strategy work.
+**Persistence.** XMachina is in-process. A `EventLog` maps naturally onto any append-only store — SQLite, Postgres, S3, a log file. The structure is simple: serialise by walking `log.messages()`, deserialise by replaying into `EventLog.start()`. Resuming across processes, syncing across nodes, storing branches — your problem, but a tractable one. The immutable tree makes any serialisation strategy work.
 
 **Undo is not a user primitive. It is a program primitive.** The log can always rewind. The program decides how that capability is exposed.
 
@@ -359,7 +359,7 @@ context = build_context(log, system=str(state))
 
 ```python
 # Stable identity in the log. Dynamic framing in build_context.
-specialist_log   = Conversation.start(
+specialist_log   = EventLog.start(
     Message("system", specialist_identity),   # who the specialist is — permanent
     Message("user", distilled_task),          # what it needs to know — minimal
 )
@@ -445,7 +445,7 @@ Two distinct layers, two distinct homes:
 
 ```python
 # Stable identity — lives in the log, set once at spawn
-log   = Conversation.start(Message("system", "You are a SQL specialist."))
+log   = EventLog.start(Message("system", "You are a SQL specialist."))
 state = evolve(MyState(), log.head.message)
 
 # Dynamic framing — lives in build_context, derived from state each turn

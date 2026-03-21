@@ -1,11 +1,11 @@
 import asyncio
-from xmachina import Message, Conversation, build_context
+from xmachina import Message, EventLog, build_context
 from xmachina.mock import EchoLLM
 
 
 async def main():
     llm = EchoLLM()
-    conversation = Conversation.start(Message("user", "And I think to myself, what a wonderful world."))
+    conversation = EventLog.start(Message("user", "And I think to myself, what a wonderful world."))
     context = build_context(conversation)
 
     full_content = ""

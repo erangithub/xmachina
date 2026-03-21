@@ -1,9 +1,9 @@
-from xmachina import Message, Conversation, build_context
+from xmachina import Message, EventLog, build_context
 from xmachina.mock import EchoLLM
 
 def main():
     llm = EchoLLM()
-    conversation = Conversation.start(Message("user", "hello"))
+    conversation = EventLog.start(Message("user", "hello"))
     context = build_context(conversation)
     response = llm.complete(context)
     conversation = conversation.append(response)

@@ -36,12 +36,12 @@ class EventNode:
 
 # The conversation — an immutable tree, O(1) branching
 @dataclass(frozen=True)
-class Conversation:
+class EventLog:
     head: EventNode | None = None
 
-    def append(self, msg: Message) -> Conversation:
+    def append(self, msg: Message) -> EventLog:
         depth = (self.head.depth + 1) if self.head else 0
-        return Conversation(head=EventNode(message=msg, parent=self.head, depth=depth))
+        return EventLog(head=EventNode(message=msg, parent=self.head, depth=depth))
 
     def messages(self) -> Iterator[Message]:
         """Lazy walk from head to root, chronological order."""
@@ -56,8 +56,8 @@ class Conversation:
         return (self.head.depth + 1) if self.head else 0
 
     @staticmethod
-    def start(*messages: Message) -> Conversation:
-        log = Conversation()
+    def start(*messages: Message) -> EventLog:
+        log = EventLog()
         for msg in messages:
             log = log.append(msg)
         return log
@@ -65,7 +65,7 @@ class Conversation:
 
 # Assembles what the LLM sees — ephemeral, discarded after each call
 def build_context(
-    log: Conversation,
+    log: EventLog,
     system: str | None = None,
     injections: list[str] | None = None,
     window: int | None = None,
