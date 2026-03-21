@@ -1,44 +1,44 @@
 import json
 
-from xmachina import Message, EventLog, build_context
+from xmachina import Message, EventLog, build_context, ToolCall
 from xmachina.mock import ToolCallLLM, get_weather, tool_schemas
+from xmachina.environment import replay, Tool
 
 
 def main():
-    tools = {"get_weather": get_weather}
+    def get_weather_tool(location: str) -> str:
+        return f"25c and sunny in {location}"
+
+    tools = [
+        Tool(name="get_weather", fn=get_weather_tool, schema=tool_schemas[0])
+    ]
 
     llm = ToolCallLLM(
         tool_name="get_weather",
         arguments={"location": "london"},
         final_answer="The weather in London is 25c and sunny.",
     )
-    tool_injections = [json.dumps(s) for s in tool_schemas]
 
-    conversation = EventLog.start(
-        Message("user", "what's the weather in london?")
-    )
+    log = EventLog()
+    log = log.append(Message("user", "what's the weather in london?"))
+    log = log.append(Message("assistant", content=None, tool_calls=(ToolCall(id="1", name="get_weather", arguments='{"location": "london"}'),)))
+    log = log.append(Message("tool", "25c and sunny in london", tool_call_id="1"))
+    log = log.append(Message("assistant", "The weather in London is 25c and sunny."))
+    env = replay(log, llm=llm, tools=tools)
 
+    env.input()  # replays user message
     while True:
-        # build_context decides what the LLM sees — ephemeral, discarded after each call
-        # conversation.append records what happened — permanent, never modified
-        # these are two separate concerns, on two separate objects, always explicit
-        context  = build_context(conversation, injections=tool_injections)
-        response = llm.complete(context)
-        conversation = conversation.append(response)
+        context = build_context(env.log, injections=[json.dumps(s) for s in tool_schemas])
+        response = env.llm_complete(context)
 
         if response.tool_calls:
             for tool_call in response.tool_calls:
-                # routing is a dict lookup — nothing more
-                fn     = tools[tool_call.name]
-                args   = json.loads(tool_call.arguments)
-                result = str(fn(**args))
-                conversation = conversation.append(
-                    Message("tool", result, tool_call_id=tool_call.id)
-                )
+                args = json.loads(tool_call.arguments)
+                env.call_tool(tool_call.name, tool_call.id, args)
         else:
             break
 
-    for msg in conversation.messages():
+    for msg in env.log.messages():
         print(f"[{msg.role}] {msg.content or msg.tool_calls}")
 
 

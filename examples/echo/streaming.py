@@ -1,23 +1,22 @@
-import asyncio
 from xmachina import Message, EventLog, build_context
-from xmachina.mock import EchoLLM
+from xmachina.llms import EchoLLM
+from xmachina.environment import replay
 
 
-async def main():
-    llm = EchoLLM()
-    conversation = EventLog.start(Message("user", "And I think to myself, what a wonderful world."))
-    context = build_context(conversation)
+def main():
+    log = EventLog()
+    log = log.append(Message("user", "And I think to myself, what a wonderful world."))
+    log = log.append(Message("assistant", "echo: And I think to myself, what a wonderful world."))
+    env = replay(log, llm=EchoLLM(), continue_live=True)
+    env.input()
 
     full_content = ""
-    async for delta in llm.stream(context):
+    for delta in env.llm_stream(build_context(env.log)):
         print(delta.content, end="", flush=True)
         full_content += delta.content
 
-    # stream is done — now advance the log
-    conversation = conversation.append(Message("assistant", full_content))
-
-    print(f"\nLogged {len(conversation)} messages")
+    print(f"\nLogged {len(env.log)} messages")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

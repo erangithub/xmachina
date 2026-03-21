@@ -1,35 +1,17 @@
 """
 xmachina.mock — development and testing utilities
 
-These are not production components. They are the simplest possible
-implementations of the LLM interface, useful for unit tests and examples
-without any external dependencies.
+These are not production components. They are useful for
+unit tests and examples without any external dependencies.
 """
 import json
-import asyncio
-from typing import AsyncIterator
+import time
+from typing import Iterator
 from xmachina import Message, Delta, ToolCall
+from xmachina.llms import LLM
 
 
-# ---------------------------------------------------------------------------
-# Mock LLMs
-# ---------------------------------------------------------------------------
-
-class EchoLLM:
-    """Echoes the last user message. The simplest possible LLM."""
-
-    def complete(self, context: list[Message]) -> Message:
-        last_user = next(m for m in reversed(context) if m.role == "user")
-        return Message("assistant", f"echo: {last_user.content}")
-
-    async def stream(self, context: list[Message]) -> AsyncIterator[Delta]:
-        last_user = next(m for m in reversed(context) if m.role == "user")
-        for word in f"echo: {last_user.content}".split():
-            await asyncio.sleep(0.2)
-            yield Delta(content=word + " ")
-
-
-class ToolCallLLM:
+class ToolCallLLM(LLM):
     """
     Simulates a two-turn tool use interaction:
       turn 1 — returns a tool call
@@ -44,8 +26,8 @@ class ToolCallLLM:
         self.final_answer = final_answer
         self._call_id     = "call_001"
 
-    def complete(self, context: list[Message]) -> Message:
-        if any(m.role == "tool" for m in context):
+    def complete(self, messages: list[Message]) -> Message:
+        if any(m.role == "tool" for m in messages):
             return Message("assistant", self.final_answer)
         return Message(
             role="assistant",
@@ -59,26 +41,19 @@ class ToolCallLLM:
             ),
         )
 
-    async def stream(self, context: list[Message]) -> AsyncIterator[Delta]:
-        """Streams the complete() result word by word."""
-        response = self.complete(context)
+    def stream(self, messages: list[Message]) -> Iterator[Delta]:
+        response = self.complete(messages)
         if response.content:
             for word in response.content.split():
-                await asyncio.sleep(0.05)
+                time.sleep(0.05)
                 yield Delta(content=word + " ")
 
-
-# ---------------------------------------------------------------------------
-# Mock tools
-# ---------------------------------------------------------------------------
 
 def get_weather(location: str) -> str:
     """Returns a fixed weather string. Stand-in for a real weather API."""
     return f"25c and sunny in {location}"
 
 
-# Hand-written OpenAI-compatible schema for get_weather.
-# In production generate this with the OpenAI SDK, Pydantic, FastMCP, etc.
 tool_schemas = [
     {
         "type": "function",

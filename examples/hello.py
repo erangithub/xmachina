@@ -1,13 +1,14 @@
 from xmachina import Message, EventLog, build_context
-#from xmachina.mock import EchoLLM
 from xmachina.llms import LMStudioLLM  # or OllamaLLM
+from xmachina.environment import replay
 
 def main():
-    llm = LMStudioLLM()
-    conversation = EventLog.start(Message("user", "what is 2 plus 5"))
-    context = build_context(conversation)
-    response = llm.complete(context)
-    conversation = conversation.append(response)
+    log = EventLog()
+    log = log.append(Message("user", "what is 2 plus 5"))
+    log = log.append(Message("assistant", "7"))
+    env = replay(log, llm=LMStudioLLM(), continue_live=True)
+    env.input()
+    response = env.llm_complete(build_context(env.log))
     print(response)
 
 if __name__ == "__main__":
