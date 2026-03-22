@@ -1,39 +1,38 @@
-from xmachina import Message, EventLog, build_context
+from xmachina import build_context
 from xmachina.llms import EchoLLM
-from xmachina.environment import replay, live
+from xmachina.environment import Environment
 
 
 def summarize(env) -> str:
     """Run summarization in a forked branch. Fork shares parent's store."""
-    sub = env.fork(parent=env)
-    context = build_context(sub.log, system="Summarize the conversation.")
+    sub = env.fork()
+    context = build_context(sub.history(), system="Summarize the conversation.")
     response = sub.llm_complete(context)
     return f"Summary: {response.content}"
 
 def flow(env):
-    user_input = "long conversation here..."
-    env.input_str(user_input)
+    user_input = env.add_user_message("long conversation here...")
     print(f"User: {user_input}")
 
     summary = summarize(env)
     print(f"Flow: {summary}")
 
-    context = build_context(env.log, injections=[summary])
+    context = build_context(env.history(), injections=[summary])
     response = env.llm_complete(context)
     print(f"Assistant: {response}")
-    
+
     print("-" * 20)
 
 def main():
     llm = EchoLLM()
 
     print("=== First run: replay + continue live ===")
-    live_env = live(llm=llm, input_fn=input)
-    flow(live_env)
+    env = Environment(llm=llm, input_fn=input)
+    flow(env)
     
     print("=== Second run: replay from saved store ===")
-    replay_env = replay(live_env.log, llm=llm, input_fn=input, continue_live=False)
-    flow(replay_env)
+    env.rewind()
+    flow(env)
 
 
 if __name__ == "__main__":

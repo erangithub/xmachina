@@ -1,14 +1,11 @@
-from xmachina import Message, EventLog, build_context
+from xmachina import build_context
 from xmachina.llms import EchoLLM
-from xmachina.environment import replay
+from xmachina.environment import Environment
 
 def main():
-    log = EventLog()
-    log = log.append(Message("user", "hello"))
-    log = log.append(Message("assistant", "echo: hello"))
-    env = replay(log, llm=EchoLLM(), continue_live=True, input_fn=input)
-    env.input()
-    response = env.llm_complete(build_context(env.log))
+    env = Environment(llm=EchoLLM(), continue_live=True, input_fn=input)
+    env.add_user_message("hello")
+    response = env.llm_complete(build_context(env.history()))
     print(response)
 
 if __name__ == "__main__":

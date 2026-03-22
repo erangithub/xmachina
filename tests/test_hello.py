@@ -1,17 +1,15 @@
-from xmachina import Message, EventLog, build_context
+from xmachina import Message, build_context
 from xmachina.llms import EchoLLM
-from xmachina.environment import replay, live
+from xmachina.environment import Environment
 
 def test_hello_world_replay():
-    # Pre-fill log and prepare environment
-    log = EventLog()
-    log = log.append(Message("user", "hello"))
-    log = log.append(Message("assistant", "echo: hello"))
-    env = replay(log, llm=EchoLLM(), input_fn=input, continue_live=True)
-    
-    # Single turn run
+    env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
+    env.add_message(Message("user", "hello"))
+    env.add_message(Message("assistant", "echo: hello"))
+    env.rewind()
+
     env.input()  # replays user message
-    response = env.llm_complete(build_context(env.log))
+    response = env.llm_complete(build_context(env.history()))
     
     assert response.role == "assistant"
     assert response.content == "echo: hello"
@@ -19,14 +17,12 @@ def test_hello_world_replay():
 
 
 def test_hello_world_replay_then_live():
-    # Pre-fill log and prepare environment
-    log = EventLog()
-    log = log.append(Message("user", "hello"))
-    env = replay(log, llm=EchoLLM(), input_fn=input, continue_live=True)
-    
-    # Single turn run
+    env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
+    env.add_message(Message("user", "hello"))
+    env.rewind()
+   
     env.input()  # replays user message
-    response = env.llm_complete(build_context(env.log))
+    response = env.llm_complete(build_context(env.history()))
 
     assert response.role == "assistant"
     assert response.content == "echo: hello"
@@ -34,12 +30,10 @@ def test_hello_world_replay_then_live():
 
 
 def test_hello_world_live():
-    # Pre-fill log and prepare environment
-    env = live(llm=EchoLLM(), input_fn=lambda: "hello")
+    env = Environment(llm=EchoLLM(), input_fn=lambda: "hello")
     
-    # Single turn run
     env.input()  # reads user message
-    response = env.llm_complete(build_context(env.log))
+    response = env.llm_complete(build_context(env.history()))
 
     assert response.role == "assistant"
     assert response.content == "echo: hello"

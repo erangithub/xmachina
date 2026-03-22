@@ -1,8 +1,8 @@
 import json
 
-from xmachina import Message, EventLog, build_context, ToolCall
-from xmachina.mock import ToolCallLLM, get_weather, tool_schemas
-from xmachina.environment import replay, Tool
+from xmachina import Message, build_context, ToolCall
+from xmachina.mock import ToolCallLLM, tool_schemas
+from xmachina.environment import Environment, Tool
 
 
 def main():
@@ -19,16 +19,16 @@ def main():
         final_answer="The weather in London is 25c and sunny.",
     )
 
-    log = EventLog()
-    log = log.append(Message("user", "what's the weather in london?"))
-    log = log.append(Message("assistant", content=None, tool_calls=(ToolCall(id="1", name="get_weather", arguments='{"location": "london"}'),)))
-    log = log.append(Message("tool", "25c and sunny in london", tool_call_id="1"))
-    log = log.append(Message("assistant", "The weather in London is 25c and sunny."))
-    env = replay(log, llm=llm, tools=tools)
-
+    env = Environment(llm=llm, tools=tools)
+    env.add_message(Message("user", "what's the weather in london?"))
+    env.add_message(Message("assistant", content=None, tool_calls=(ToolCall(id="1", name="get_weather", arguments='{"location": "london"}'),)))
+    env.add_message(Message("tool", "25c and sunny in london", tool_call_id="1"))
+    env.add_message(Message("assistant", "The weather in London is 25c and sunny."))
+    env.rewind()
+    
     env.input()  # replays user message
     while True:
-        context = build_context(env.log, injections=[json.dumps(s) for s in tool_schemas])
+        context = build_context(env.history(), injections=[json.dumps(s) for s in tool_schemas])
         response = env.llm_complete(context)
 
         if response.tool_calls:
@@ -37,7 +37,7 @@ def main():
         else:
             break
 
-    for msg in env.log.messages():
+    for msg in env.history().iter_messages():
         print(f"[{msg.role}] {msg.content or msg.tool_calls}")
 
 

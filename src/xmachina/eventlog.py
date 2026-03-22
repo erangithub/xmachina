@@ -32,96 +32,72 @@ class EventNode:
     id: str
     message: Message
     parent: EventNode | None
-    depth: 0
+    depth: int = 0
 
 
-class EventStore:
-    def __init__(self):
-        self.nodes: dict[str, EventNode] = {}
-        self.children: dict[str, list[str]] = {}
+class Sequence:
+    after_node: EventNode | None # Sequence starts after this node, or None for start from beginning
+    to_node: EventNode           # Sequence ends at this node (included)
 
-    def add(self, node: EventNode):
-        self.nodes[node.id] = node
-        parent = node.parent
-        if parent is not None:
-            if parent.id not in self.children:
-                self.children[parent.id] = []
-            self.children[parent.id].append(node.id)
-
-    def get_children(self, node_id: str) -> list[EventNode]:
-        return [self.nodes[cid] for cid in self.children.get(node_id, [])]
-
-    def left_most_descendant(self, node: EventNode) -> str:
-        while True:
-            children = self.get_children(node.id)
-            if not children:
-                return node
-            node = children[0]
-
-
-@dataclass
-class EventLog:
-    head: EventNode | None = None
-    store: EventStore = field(default_factory=EventStore)
-
-    def append(self, msg: Message) -> EventLog:
-        node_id = str(uuid.uuid4())
-        node = EventNode(id=node_id, message=msg, parent=self.head, depth=len(self)+1)
-        self.store.add(node)
-        return EventLog(head=node, store=self.store)
-
+    def __init__(self, after_node: EventNode | None, to_node: EventNode):
+        self.after_node = after_node
+        self.to_node = to_node
+        
     # Returns iterator over all messages
-    def messages(self) -> Iterator[Message]:
+    def iter_messages(self) -> Iterator[Message]:
         stack = []
-        node = self.head
-        while node:
+        node = self.to_node
+        while node and (node != self.after_node):
             if node.message != DUMMY:
                 stack.append(node.message)
             node = node.parent
         while stack:
             yield stack.pop()
 
-    # Returns iterator over all nodes start at 'start_id' (not included)
-    # and leading upto the head (included)
-    def nodes(self, start_id: str | None = None) -> Iterator[EventNode]:
+    # Returns iterator over all nodes 
+    def iter_nodes(self) -> Iterator[EventNode]:
         stack = []
-        node = self.head
-        while node and node.id != start_id:
-            if node.message != DUMMY:
-                stack.append(node)
+        node = self.to_node
+        while node and (node != self.after_node):
+            stack.append(node)
             node = node.parent
         while stack:
             yield stack.pop()
 
-    def read_from_here(self) -> Iterator[EventNode]:
-        deepest = self.store.left_most_descendant(self.head)
-        deepLog = EventLog(deepest, self.store)
-        return deepLog.nodes(self.head.id)
+class WriteHead:
+    parent: EventNode | None
 
-    def __len__(self) -> int:
-        return self.head.depth if self.head else 0
+    def __init__(self, parent: EventNode | None = None):
+        self.parent = parent
+
+    def append(self, msg: Message):
+        node_id = str(uuid.uuid4())
+        depth = (self.parent.depth + 1) if self.parent else 0
+        self.parent = EventNode(id=node_id, message=msg, parent=self.parent, depth=depth)
+
+    def fork(self) -> EventNode:
+        node_id = str(uuid.uuid4())
+        depth = (self.parent.depth + 1) if self.parent else 0
+        return EventNode(id=node_id, message=DUMMY, parent=self.parent, depth=depth)
 
     @staticmethod
-    def start(*messages: Message) -> EventLog:
-        log = EventLog()
+    def start(*messages: Message) -> WriteHead:
+        write_head = WriteHead()
         for msg in messages:
-            log = log.append(msg)
-        return log
+            write_head.append(msg)
+        return write_head
 
 
 def build_context(
-    log: EventLog,
+    sequence: Sequence,
     system: str | None = None,
-    injections: list[str] | None = None,
-    window: int | None = None,
+    injections: list[str] | None = None
 ) -> list[Message]:
     context: list[Message] = []
     if system:
         context.append(Message("system", system))
     for text in (injections or []):
         context.append(Message("system", text))
-    history = list(log.messages())
-    if window:
-        history = history[-window:]
+    history = list(sequence.iter_messages())
     context.extend(history)
     return context

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator, Callable, TypeVar
-from xmachina import Message, Delta, EventLog, EventNode, ToolCall, DUMMY
+from xmachina import Message, Delta, WriteHead, EventNode, ToolCall, Sequence, DUMMY
 from xmachina.llms.base import LLM
 
 
@@ -18,23 +18,21 @@ class Tool:
 class Environment:
     def __init__(
         self,
-        log: EventLog | None = None,
-        readhead: Iterator[EventNode] | None = None,
-        lastread: EventNode | None = None,
-        child_index: int = 0,
         llm: LLM | None = None,
         tools: list[Tool] | None = None,
         input_fn: Callable[[], str] | None = None,
         continue_live: bool = False,
+        origin_node: EventNode | None = None,
     ):
-        self.log = log or EventLog()
-        self.readhead = readhead
-        self.lastread = lastread
-        self.child_index = child_index
         self.llm = llm
         self.tools = tools or []
         self.input_fn = input_fn
-        self.continue_live = continue_live
+
+        self.origin_node = origin_node
+        self.write_head = WriteHead(parent = origin_node)
+        self.forks: dict[str, Environment] = {} # Environment forks from head node_ids
+
+        self.rewind(continue_live)
 
     @property
     def is_replay(self) -> bool:
@@ -43,41 +41,48 @@ class Environment:
     def _write(self, msg: Message):
         if self.is_replay:
             raise RuntimeError("Cannot write in replay mode")
-        self.log = self.log.append(msg)
+        self.write_head.append(msg)
+        self.child_index = 0
 
     def _read(self) -> Message | None:
         if self.readhead is None:
             return None
         self.lastread = next(self.readhead, None)
+        self.child_index = 0
         if self.lastread is None:
             self.readhead = None
             return None
         return self.lastread.message
 
     def current_node(self) -> EventNode:
-        return self.lastread if self.is_replay else self.log.head
+        return self.lastread if self.is_replay else self.write_head.parent
     
-    def fork(self, parent: Environment | None = None) -> Environment:
-        """Fork from current position. Optionally pass parent env to share store."""
-        if self.log.head is None:
+    def history(self) -> Sequence:
+        return Sequence(after_node=None, to_node=self.current_node())
+
+    def fork(self) -> Environment:
+        if self.write_head.parent is None:
             raise RuntimeError("Cannot fork from empty log")
-        store = self.log.store
         forknode = self.current_node()
-        children = store.get_children(forknode.id)
-        if self.child_index < len(children):
-            new_log = EventLog(head=children[self.child_index], store=store)
+        if not forknode.id in self.forks:
+            self.forks[forknode.id] = []
+        child_envs = self.forks[forknode.id]
+        if self.child_index < len(child_envs): # defacto, replay
+            forked_env = child_envs[self.child_index]
+            forked_env.rewind()
         else:
-            new_log = self.log.append(DUMMY)
+            forked_env = Environment(
+                llm=self.llm,
+                tools=self.tools,
+                input_fn=self.input_fn,
+                continue_live=self.continue_live,
+                origin_node=self.write_head.fork(),
+            )
+            child_envs.append(forked_env)
+
         self.child_index += 1
-        return Environment(
-            log=new_log,
-            readhead= new_log.read_from_here() if self.is_replay else None,
-            child_index=0,
-            llm=self.llm,
-            tools=self.tools,
-            input_fn=self.input_fn,
-            continue_live=self.continue_live,
-        )
+        return forked_env
+        
 
     def _invoke(self, to_message: Callable[[T], Message], fn: Callable[[], T], expected_role: str) -> Message:
         if self.is_replay:
@@ -138,21 +143,29 @@ class Environment:
         )
         return result.content
 
-    # Emulate user input - utility for testing
-    def input_str(self, text) -> str:
+    # Add a message to the log as if it came from the environment
+    # this is useful for testing
+    def add_message(self, msg: Message) -> str:
         result = self._invoke(
-            to_message=lambda t: Message(role="user", content=t),
-            fn=lambda: text,
-            expected_role="user",
+            to_message=lambda x: x,
+            fn=lambda: msg,
+            expected_role=msg.role,
         )
         return result.content
 
-def replay(log: EventLog, llm: LLM | None = None, tools: list[Tool] | None = None, input_fn: Callable[[], str] | None = None, continue_live: bool = False) -> Environment:
-    if continue_live and input_fn is None:
-        raise ValueError("input_fn is required when continue_live is True")
-    return Environment(log=log, readhead=log.nodes(), llm=llm, tools=tools, input_fn=input_fn, continue_live=continue_live)
+    # Add a message to the log as if it came from the environment
+    # this is useful for testing
+    def add_user_message(self, text: str) -> str:
+        return self.add_message(Message(role="user", content=text))
+    
+    def rewind(self, continue_live: bool | None = None):
+        last_written_node = self.write_head.parent
+        if last_written_node and last_written_node != self.origin_node :
+            self.readhead = Sequence(after_node=self.origin_node, to_node=self.write_head.parent).iter_nodes()
+        else:
+            self.readhead = None
 
-def live(llm: LLM, tools: list[Tool] | None = None, input_fn: Callable[[], str] | None = None) -> Environment:
-    if input_fn is None:
-        raise ValueError("input_fn is required in live mode")
-    return Environment(log=EventLog(), readhead=None, llm=llm, tools=tools, input_fn=input_fn)
+        if continue_live is not None:
+            self.continue_live = continue_live
+        self.child_index = 0
+        self.lastread = self.origin_node
