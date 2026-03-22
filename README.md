@@ -7,48 +7,18 @@ XMachina reframes agentic LLM systems as a **state machine** with an **environme
 The environment is the source of all non-determinism — user input, LLM completions, tool results. The state machine is yours: deterministic, explicit, testable, expressed naturally in code.
 
 This reframing dissolves problems that other frameworks solve with infrastructure:
-checkpointing, branching, time travel, replay, runtime — all fall out naturally
+checkpointing, branching, time travel, replay — all fall out naturally
 from an immutable log and a clean separation of concerns.
-
-```
-input, llm, tools  →  Message  →  evolve(state, msg)  →  build_context  →  LLM
-```
-
-Three separations follow naturally:
-
-- **Log vs state** — the log is immutable and append-only; state is derived from it by a fold. Many agents don't have any state beyond the log.
-- **State vs view** — `build_context` assembles what the LLM sees, ephemerally, from state
-- **Live vs replay** — swap the environment to replay any session exactly, no mocks needed
 
 This is **[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html)** applied to LLM conversations.
 
 | Event Sourcing | XMachina                                                 |
 | -------------- | -------------------------------------------------------- |
-| Event Store    | `EventLog` (immutable tree, O(1) branching)              |
+| Event Store    | Immutable node chain — O(1) branching                    |
 | Event          | `Message`                                                |
 | Projection     | `evolve(state, message)` — you write this                |
-| Read Model     | `build_context` — ephemeral, discarded after each call   |
+| Read Model     | `build_context(env.history())` — ephemeral               |
 | Command        | `env.input()` / `env.llm_complete()` / `env.call_tool()` |
-
-The canonical loop:
-
-```python
-env = live(llm=MyLLM(), input_fn=input)
-# or: env = replay(saved_log, continue_live=True)
-
-while True:
-    # live: get user input, write to log     | replay: read from log
-    request  = env.input()
-    while True:
-        context  = build_context(env.log)
-        # live: call llm, record result to log   | replay: read from log
-        response = env.llm_complete(context)
-        if not response.tool_calls: break
-        # live: run tools, record results to log | replay: read from log
-        for tc in response.tool_calls: env.call_tool(tc)
-```
-
-Everything else — memory, checkpointing, branching, multi-agent, streaming — is a variation of this loop.
 
 **You don't need the LLM to be deterministic. You need the log to be honest.**
 
@@ -64,25 +34,181 @@ Everything else — memory, checkpointing, branching, multi-agent, streaming —
 pip install -e .
 ```
 
-This installs xmachina with its only dependency: `openai>=1.0`.
+---
 
 ## Quick start
 
 ```python
-from xmachina import Message, EventLog, build_context
+from xmachina import Message, build_context
 from xmachina.llms import OpenAILLM
-from xmachina.environment import live, Tool
+from xmachina.environment import Environment
 
-env = live(llm=OpenAILLM(), tools=tools, input_fn=input)
+env = Environment(llm=OpenAILLM(), input_fn=input)
 
 while True:
-    user_input = env.input()
-    if user_input.lower() in ("quit", "exit"):
-        break
-    context = build_context(env.log)
-    response = env.llm_complete(context)
-    print(response.content)
+    # live: get user input, write to log         | replay: read from log
+    request  = env.input()
+    while True:
+        context  = build_context(env.history())
+        # live: call llm, record result to log   | replay: read from log
+        response = env.llm_complete(context)
+        if not response.tool_calls: break
+        # live: run tools, record results to log | replay: read from log
+        for tc in response.tool_calls: env.call_tool(tc)
 ```
+
+Everything else — memory, checkpointing, branching, multi-agent, streaming — is a variation of this loop.
+
+---
+
+## Replay
+
+The same environment, the same code, three modes.
+
+### Full replay — no LLM calls
+
+```python
+from xmachina import Message, build_context
+from xmachina.llms import EchoLLM
+from xmachina.environment import Environment
+
+# Record
+env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
+env.add_message(Message("user", "hello"))
+env.add_message(Message("assistant", "echo: hello"))
+
+# Replay — reads from log, validates roles, no LLM called
+env.rewind()
+env.input()
+response = env.llm_complete(build_context(env.history()))
+
+assert response.content == "echo: hello"
+```
+
+### Replay then continue live
+
+Pre-fill part of the conversation, replay it, then continue with a real LLM:
+
+```python
+env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
+env.add_message(Message("user", "hello"))
+
+# Rewind — replays the user message, then calls LLM live for the response
+env.rewind()
+env.input()
+response = env.llm_complete(build_context(env.history()))
+
+assert response.content == "echo: hello"
+```
+
+### Pure live
+
+```python
+env = Environment(llm=EchoLLM(), input_fn=lambda: "hello")
+
+env.input()
+response = env.llm_complete(build_context(env.history()))
+
+assert response.content == "echo: hello"
+```
+
+**The loop is identical in all three modes.** `rewind()` resets the environment. The code never changes.
+
+---
+
+## Forking
+
+`env.fork()` creates a child environment that branches off the current position.
+The fork shares the parent's history but has its own write head.
+The parent log is never touched.
+
+This is how summarization works without contaminating the conversation:
+
+```python
+from xmachina import build_context
+from xmachina.llms import EchoLLM
+from xmachina.environment import Environment
+
+
+def summarize(env) -> str:
+    """Summarize in a fork — never touches the parent log."""
+    sub = env.fork()
+    context = build_context(sub.history(), system="Summarize the conversation.")
+    response = sub.llm_complete(context)
+    return f"Summary: {response.content}"
+
+
+def flow(env):
+    env.add_message(Message("user", "long conversation here..."))
+
+    # Fork to summarize — parent log unchanged
+    summary = summarize(env)
+
+    # Inject summary as context, not as a log entry
+    context = build_context(env.history(), injections=[summary])
+    response = env.llm_complete(context)
+    return response
+
+
+def main():
+    llm = EchoLLM()
+
+    # First run — live
+    env = Environment(llm=llm, input_fn=input)
+    flow(env)
+
+    # Second run — exact replay, including the fork
+    env.rewind()
+    flow(env)
+```
+
+`flow()` is identical in both runs. The fork replays automatically on `rewind()`.
+No mocks. No special test mode. No contamination.
+
+Forking also enables parallelism:
+
+```python
+import asyncio
+
+async def run_parallel(env):
+    branch_a = env.fork()
+    branch_b = env.fork()
+
+    result_a, result_b = await asyncio.gather(
+        run_branch(branch_a),
+        run_branch(branch_b),
+    )
+```
+
+Both branches share history. Both replay independently. Standard Python concurrency — no swarm orchestrator needed.
+
+---
+
+## Tools
+
+```python
+from xmachina.environment import Environment, Tool
+
+tools = [
+    Tool(name="get_weather", fn=get_weather, schema=weather_schema)
+]
+
+env = Environment(llm=MyLLM(), tools=tools, input_fn=input)
+
+while True:
+    request  = env.input()
+    while True:
+        context  = build_context(env.history())
+        response = env.llm_complete(context)
+        if not response.tool_calls: break
+        for tc in response.tool_calls:
+            env.call_tool(tc)   # executes tool, appends result to log
+```
+
+Schema generation belongs to the ecosystem — OpenAI SDK, Pydantic, FastMCP.
+XMachina doesn't provide `@tool`. That would conflict with what you already have.
+
+---
 
 ## LLM providers
 
@@ -108,36 +234,16 @@ from xmachina.llms import EchoLLM
 llm = EchoLLM()
 ```
 
-## Replay
-
-Record a session, replay it exactly:
-
-```python
-from xmachina import Message, EventLog, build_context
-from xmachina.llms import EchoLLM
-from xmachina.environment import replay
-
-log = EventLog()
-log = log.append(Message("user", "hello"))
-log = log.append(Message("assistant", "echo: hello"))
-
-env = replay(log, llm=EchoLLM())
-env.input()  # replays user message
-response = env.llm_complete(build_context(env.log))
-```
-
-Or replay then continue live:
-
-```python
-env = replay(log, llm=MyLLM(), input_fn=input, continue_live=True)
-```
+---
 
 ## Examples
 
 See `examples/` for more:
 
 - `examples/hello.py` — basic LLM call
-- `examples/echo/` — testing with EchoLLM
+- `examples/summarize.py` — forking for summarization
+- `examples/tools.py` — tool use loop
+- `examples/replay.py` — all three replay modes
 
 ---
 
