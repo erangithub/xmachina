@@ -1,12 +1,12 @@
-from xmachina import Message, build_context
+from xmachina import build_context
 from xmachina.llms import EchoLLM
 from xmachina.environment import Environment
 
 
 def test_streaming():
     env = Environment(llm=EchoLLM(), input_fn=lambda: "", continue_live=True)
-    env.add_message(Message("user", "hello"))
-    env.add_message(Message("assistant", "echo: hello"))
+    env.add_message("user", "hello")
+    env.add_message("assistant", "echo: hello")
     env.rewind()
 
     env.input()  # replays user message

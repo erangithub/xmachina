@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator, Callable, TypeVar
-from xmachina import Message, Delta, WriteHead, EventNode, ToolCall, Sequence, DUMMY
+from xmachina import MessageEvent, Delta, WriteHead, EventNode, ToolCall, Sequence, BRANCH_START, ControlEvent
 from xmachina.llms.base import LLM
 
 
@@ -38,13 +38,13 @@ class Environment:
     def is_replay(self) -> bool:
         return (self.readhead is not None)
 
-    def _write(self, msg: Message):
+    def _write(self, msg: MessageEvent):
         if self.is_replay:
             raise RuntimeError("Cannot write in replay mode")
         self.write_head.append(msg)
         self.child_index = 0
 
-    def _read(self) -> Message | None:
+    def _read(self) -> MessageEvent | None:
         if self.readhead is None:
             return None
         self.lastread = next(self.readhead, None)
@@ -52,7 +52,7 @@ class Environment:
         if self.lastread is None:
             self.readhead = None
             return None
-        return self.lastread.message
+        return self.lastread.event
 
     def current_node(self) -> EventNode:
         return self.lastread if self.is_replay else self.write_head.parent
@@ -84,10 +84,10 @@ class Environment:
         return forked_env
         
 
-    def _invoke(self, to_message: Callable[[T], Message], fn: Callable[[], T], expected_role: str) -> Message:
+    def _invoke(self, to_message: Callable[[T], MessageEvent], fn: Callable[[], T], expected_role: str) -> MessageEvent:
         if self.is_replay:
             result = self._read()
-            while result == DUMMY:
+            while result == BRANCH_START:
                 result = self._read()
             if result is not None:
                 if result.role != expected_role:
@@ -99,14 +99,14 @@ class Environment:
         self._write(to_message(result))
         return to_message(result)
 
-    def llm_complete(self, messages: list[Message]) -> Message:
+    def llm_complete(self, messages: list[MessageEvent]) -> MessageEvent:
         return self._invoke(
             to_message=lambda m: m,
             fn=lambda: self.llm.complete(messages),
             expected_role="assistant",
         )
 
-    def llm_stream(self, messages: list[Message]) -> Iterator[Delta]:
+    def llm_stream(self, messages: list[MessageEvent]) -> Iterator[Delta]:
         if self.is_replay:
             result = self._read()
             if result is not None:
@@ -119,7 +119,7 @@ class Environment:
             if not self.continue_live:
                 raise RuntimeError("Replay exhausted")
         deltas = list(self.llm.stream(messages))
-        self._write(Message(role="assistant", content="".join(d.content for d in deltas)))
+        self._write(MessageEvent(role="assistant", content="".join(d.content for d in deltas)))
         yield from deltas
 
     def call_tool(self, tool_call: ToolCall) -> str:
@@ -129,7 +129,7 @@ class Environment:
             tool = next(t for t in self.tools if t.name == tool_call.name)
             return tool.fn(**args)
         result = self._invoke(
-            to_message=lambda r: Message(role="tool", content=r, tool_call_id=tool_call.id),
+            to_message=lambda r: MessageEvent(role="tool", content=r, tool_call_id=tool_call.id),
             fn=fn,
             expected_role="tool",
         )
@@ -137,7 +137,7 @@ class Environment:
 
     def input(self) -> str:
         result = self._invoke(
-            to_message=lambda t: Message(role="user", content=t),
+            to_message=lambda t: MessageEvent(role="user", content=t),
             fn=self.input_fn,
             expected_role="user",
         )
@@ -145,7 +145,8 @@ class Environment:
 
     # Add a message to the log as if it came from the environment
     # this is useful for testing
-    def add_message(self, msg: Message) -> str:
+    def add_message(self, role: str, content: str | None = None, **kwargs) -> str:
+        msg = MessageEvent(role=role, content=content, **kwargs)
         result = self._invoke(
             to_message=lambda x: x,
             fn=lambda: msg,
@@ -156,7 +157,7 @@ class Environment:
     # Add a message to the log as if it came from the environment
     # this is useful for testing
     def add_user_message(self, text: str) -> str:
-        return self.add_message(Message(role="user", content=text))
+        return self.add_message(MessageEvent(role="user", content=text))
     
     def rewind(self, continue_live: bool | None = None):
         last_written_node = self.write_head.parent

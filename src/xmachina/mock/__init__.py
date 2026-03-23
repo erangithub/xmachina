@@ -7,7 +7,7 @@ unit tests and examples without any external dependencies.
 import json
 import time
 from typing import Iterator
-from xmachina import Message, Delta, ToolCall
+from xmachina import MessageEvent, Delta, ToolCall
 from xmachina.llms import LLM
 
 
@@ -26,10 +26,10 @@ class ToolCallLLM(LLM):
         self.final_answer = final_answer
         self._call_id     = "call_001"
 
-    def complete(self, messages: list[Message]) -> Message:
+    def complete(self, messages: list[MessageEvent]) -> MessageEvent:
         if any(m.role == "tool" for m in messages):
-            return Message("assistant", self.final_answer)
-        return Message(
+            return MessageEvent("assistant", self.final_answer)
+        return MessageEvent(
             role="assistant",
             content=None,
             tool_calls=(
@@ -41,7 +41,7 @@ class ToolCallLLM(LLM):
             ),
         )
 
-    def stream(self, messages: list[Message]) -> Iterator[Delta]:
+    def stream(self, messages: list[MessageEvent]) -> Iterator[Delta]:
         response = self.complete(messages)
         if response.content:
             for word in response.content.split():

@@ -1,11 +1,11 @@
-from xmachina import Message, build_context
+from xmachina import build_context
 from xmachina.llms import EchoLLM
 from xmachina.environment import Environment
 
 def test_hello_world_replay():
     env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
-    env.add_message(Message("user", "hello"))
-    env.add_message(Message("assistant", "echo: hello"))
+    env.add_message("user", "hello")
+    env.add_message("assistant", "echo: hello")
     env.rewind()
 
     env.input()  # replays user message
@@ -18,7 +18,7 @@ def test_hello_world_replay():
 
 def test_hello_world_replay_then_live():
     env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
-    env.add_message(Message("user", "hello"))
+    env.add_message("user", "hello")
     env.rewind()
    
     env.input()  # replays user message
