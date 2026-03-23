@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator, Callable, TypeVar
-from xmachina import MessageEvent, Delta, WriteHead, EventNode, ToolCall, Sequence, BRANCH_START, ControlEvent
+from xmachina import MessageEvent, Delta, WriteHead, EventNode, ToolCall, Sequence, BRANCH_START, ControlEvent, CustomFunctionEvent, Event
 from xmachina.llms.base import LLM
 
 
@@ -38,13 +38,13 @@ class Environment:
     def is_replay(self) -> bool:
         return (self.readhead is not None)
 
-    def _write(self, msg: MessageEvent):
+    def _write(self, event: Event):
         if self.is_replay:
             raise RuntimeError("Cannot write in replay mode")
-        self.write_head.append(msg)
+        self.write_head.append(event)
         self.child_index = 0
 
-    def _read(self) -> MessageEvent | None:
+    def _read(self) -> Event | None:
         if self.readhead is None:
             return None
         self.lastread = next(self.readhead, None)
@@ -158,6 +158,28 @@ class Environment:
     # this is useful for testing
     def add_user_message(self, text: str) -> str:
         return self.add_message(MessageEvent(role="user", content=text))
+
+    def nondet(self, fn: Callable[..., T]) -> Callable[..., T]:
+        import json
+        fn_name = fn.__name__
+
+        def wrapper(*args, **kwargs):
+            if self.is_replay:
+                result = self._read()
+                while result == BRANCH_START:
+                    result = self._read()
+                if result is not None:
+                    if isinstance(result, CustomFunctionEvent):
+                        return json.loads(result.content)
+                    raise RuntimeError(f"Expected CustomFunctionEvent, got {type(result)}")
+                if not self.continue_live:
+                    raise RuntimeError("Replay exhausted")
+            
+            result = fn(*args, **kwargs)
+            self._write(CustomFunctionEvent(fn_name=fn_name, content=json.dumps(result)))
+            return result
+
+        return wrapper
     
     def rewind(self, continue_live: bool | None = None):
         last_written_node = self.write_head.parent
