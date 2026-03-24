@@ -1,23 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterator
+from typing import Iterator, Any
+import json
 import uuid
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    id: str
-    name: str
-    arguments: str
-
-
-@dataclass(frozen=True)
-class MessageEvent:
-    role: str
-    content: str | None = None
-    tool_calls: tuple[ToolCall, ...] = ()
-    tool_call_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -25,10 +11,19 @@ class Delta:
     content: str
 
 
-@dataclass
-class CustomFunctionEvent:
-    fn_name: str
-    content: str
+@dataclass(frozen=True)
+class Message:
+    role: str
+    content: str | None = None
+    tool_calls: tuple = ()
+    tool_call_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: str
 
 
 class ControlKind(Enum):
@@ -41,9 +36,23 @@ class ControlEvent:
     control: ControlKind
 
 
-Event = MessageEvent | CustomFunctionEvent | ControlEvent
+@dataclass
+class MessageEvent:
+    message: Message
+    timestamp: float | None = None
+    duration_ms: float | None = None
 
-BRANCH_START = ControlEvent(control=ControlKind.branch_start)
+
+@dataclass
+class CallEvent:
+    fn_name: str
+    result: str
+    timestamp: float | None = None
+    duration_ms: float | None = None
+    args: str | None = None
+
+
+Event = MessageEvent | CallEvent | ControlEvent
 
 
 @dataclass(frozen=True)
@@ -62,15 +71,10 @@ class Sequence:
         self.after_node = after_node
         self.to_node = to_node
 
-    def iter_messages(self) -> Iterator[MessageEvent]:
-        stack = []
-        node = self.to_node
-        while node and (node != self.after_node):
+    def iter_messages(self) -> Iterator[Message]:
+        for node in self.iter_nodes():
             if isinstance(node.event, MessageEvent):
-                stack.append(node.event)
-            node = node.parent
-        while stack:
-            yield stack.pop()
+                yield node.event.message
 
     def iter_nodes(self) -> Iterator[EventNode]:
         stack = []
@@ -96,26 +100,28 @@ class WriteHead:
     def fork(self) -> EventNode:
         node_id = str(uuid.uuid4())
         depth = (self.parent.depth + 1) if self.parent else 0
-        return EventNode(id=node_id, event=BRANCH_START, parent=self.parent, depth=depth)
+        return EventNode(
+            id=node_id,
+            event=ControlEvent(control=ControlKind.branch_start),
+            parent=self.parent,
+            depth=depth,
+        )
 
     @staticmethod
-    def start(*messages: MessageEvent) -> WriteHead:
-        write_head = WriteHead()
-        for msg in messages:
-            write_head.append(msg)
-        return write_head
+    def start() -> WriteHead:
+        return WriteHead()
 
 
 def build_context(
     sequence: Sequence,
     system: str | None = None,
-    injections: list[str] | None = None
-) -> list[MessageEvent]:
-    context: list[MessageEvent] = []
+    injections: list[str] | None = None,
+) -> list[Message]:
+    context: list[Message] = []
     if system:
-        context.append(MessageEvent("system", system))
+        context.append(Message(role="system", content=system))
     for text in (injections or []):
-        context.append(MessageEvent("system", text))
-    history = list(sequence.iter_messages())
-    context.extend(history)
+        context.append(Message(role="system", content=text))
+    for msg in sequence.iter_messages():
+        context.append(msg)
     return context

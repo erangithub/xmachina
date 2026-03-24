@@ -3,7 +3,10 @@ from xmachina.llms import EchoLLM
 from xmachina.environment import Environment
 
 def test_hello_world_replay():
-    env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
+    llm = EchoLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_fn(llm.complete)
+    env.register_input_fn(input)
     env.add_message("user", "hello")
     env.add_message("assistant", "echo: hello")
     env.rewind()
@@ -17,7 +20,10 @@ def test_hello_world_replay():
 
 
 def test_hello_world_replay_then_live():
-    env = Environment(llm=EchoLLM(), input_fn=input, continue_live=True)
+    llm = EchoLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_fn(llm.complete)
+    env.register_input_fn(input)
     env.add_message("user", "hello")
     env.rewind()
    
@@ -30,7 +36,10 @@ def test_hello_world_replay_then_live():
 
 
 def test_hello_world_live():
-    env = Environment(llm=EchoLLM(), input_fn=lambda: "hello")
+    llm = EchoLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_fn(llm.complete)
+    env.register_input_fn(lambda: "hello")
     
     env.input()  # reads user message
     response = env.llm_complete(build_context(env.history()))

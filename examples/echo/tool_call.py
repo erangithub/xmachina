@@ -19,11 +19,14 @@ def main():
         final_answer="The weather in London is 25c and sunny.",
     )
 
-    env = Environment(llm=llm, tools=tools)
-    env.add_message(Message("user", "what's the weather in london?"))
-    env.add_message(Message("assistant", content=None, tool_calls=(ToolCall(id="1", name="get_weather", arguments='{"location": "london"}'),)))
-    env.add_message(Message("tool", "25c and sunny in london", tool_call_id="1"))
-    env.add_message(Message("assistant", "The weather in London is 25c and sunny."))
+    env = Environment(continue_live=True)
+    env.register_llm_fn(llm.complete)
+    env.register_input_fn(input)
+    env.register_tool_fns(tools)
+    env.add_user_message("what's the weather in london?")
+    env.add_message(role="assistant", content=None, tool_calls=(ToolCall(id="1", name="get_weather", arguments='{"location": "london"}'),))
+    env.add_message(role="tool", content="25c and sunny in london", tool_call_id="1")
+    env.add_message(role="assistant", content="The weather in London is 25c and sunny.")
     env.rewind()
     
     env.input()  # replays user message

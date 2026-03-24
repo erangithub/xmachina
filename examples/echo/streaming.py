@@ -4,9 +4,11 @@ from xmachina.environment import Environment
 
 
 def main():
-    env = Environment(llm=EchoLLM(), continue_live=True, input_fn=input)
+    llm = EchoLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_stream_fn(llm.stream, name="llm_stream")
+    env.register_input_fn(input)
     env.add_message(Message("user", "And I think to myself, what a wonderful world."))
-    #env.add_message(Message("assistant", "echo: And I think to myself, what a wonderful world."))
 
     env.rewind()
 

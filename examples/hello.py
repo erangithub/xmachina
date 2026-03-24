@@ -3,12 +3,15 @@ from xmachina.llms import LMStudioLLM  # or OllamaLLM
 from xmachina.environment import Environment
 
 def main():
-    env = Environment(llm=LMStudioLLM(), continue_live=True)
-    env.add_message(Message("user", "what is 2 plus 5"))
-    env.add_message(Message("assistant", "7"))
+    llm = LMStudioLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_fn(llm.complete)
+    env.register_input_fn(lambda: "7")
+    env.add_message("user", "what is 2 plus 5?")
+    env.add_message("assistant", "7")
     
     env.rewind()
-    env.input()
+    env.input()  # replays user message
     response = env.llm_complete(build_context(env.history()))
     print(response)
 

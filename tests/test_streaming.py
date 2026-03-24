@@ -4,7 +4,10 @@ from xmachina.environment import Environment
 
 
 def test_streaming():
-    env = Environment(llm=EchoLLM(), input_fn=lambda: "", continue_live=True)
+    llm = EchoLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_stream_fn(llm.stream, name="llm_complete")  # event name: llm.complete
+    env.register_input_fn(lambda: "")
     env.add_message("user", "hello")
     env.add_message("assistant", "echo: hello")
     env.rewind()
@@ -12,7 +15,7 @@ def test_streaming():
     env.input()  # replays user message
 
     full_content = ""
-    for delta in env.llm_stream(build_context(env.history())):
+    for delta in env.llm_complete(build_context(env.history())):
         full_content += delta.content
 
     messages = list(env.history().iter_messages())

@@ -1,7 +1,7 @@
 import os
 from typing import Iterator
 from openai import OpenAI
-from xmachina import MessageEvent, Delta
+from xmachina import Message, Delta
 from .base import LLM
 
 
@@ -14,16 +14,16 @@ class GroqLLM(LLM):
             **kwargs,
         )
 
-    def complete(self, messages: list[MessageEvent]) -> MessageEvent:
+    def complete(self, messages: list[Message]) -> Message:
         from .openai import _to_dict
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[_to_dict(m) for m in messages],
         )
         msg = response.choices[0].message
-        return MessageEvent(role=msg.role or "assistant", content=msg.content or "")
+        return Message(role=msg.role or "assistant", content=msg.content or "")
 
-    def stream(self, messages: list[MessageEvent]) -> Iterator[Delta]:
+    def stream(self, messages: list[Message]) -> Iterator[Delta]:
         from .openai import _to_dict
         response = self.client.chat.completions.create(
             model=self.model,

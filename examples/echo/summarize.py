@@ -25,9 +25,11 @@ def flow(env):
 
 def main():
     llm = EchoLLM()
+    env = Environment(continue_live=True)
+    env.register_llm_fn(llm.complete)
+    env.register_input_fn(input)
 
     print("=== First run: replay + continue live ===")
-    env = Environment(llm=llm, input_fn=input)
     flow(env)
     
     print("=== Second run: replay from saved store ===")
