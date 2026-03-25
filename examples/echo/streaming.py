@@ -8,7 +8,7 @@ def main():
     env = Environment(continue_live=True)
     env.register_llm_stream_fn(llm.stream, name="llm_stream")
     env.register_input_fn(input)
-    env.add_message(Message("user", "And I think to myself, what a wonderful world."))
+    env.add_user_message("And I think to myself, what a wonderful world.")
 
     env.rewind()
 

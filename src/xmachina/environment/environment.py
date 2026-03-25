@@ -151,6 +151,8 @@ class Environment:
         return msg.content
 
     def add_message(self, role: str, content: str | None = None, **kwargs) -> str:
+        if not isinstance(role, str):
+            raise RuntimeError(f"Wrote type {type(role)} passed for 'role' argument in add_message, it must be a sstring.")
         msg = Message(role=role, content=content, **kwargs)
         result = self._invoke_msg(fn=lambda: msg)
         return result.content
@@ -189,13 +191,17 @@ class Environment:
 
     def register_llm_stream_fn(self, fn: Callable, name: str = "llm_stream"):
         def method(obj, messages):
-            def get_msg():
-                deltas = list(fn(messages))
-                content = "".join(d.content for d in deltas)
-                return Message(role="assistant", content=content)
-            msg = obj._invoke_msg(fn=get_msg)
-            for word in (msg.content or "").split():
-                yield Delta(content=word + " ")
+            content_parts = []
+            for delta in fn(messages):
+                content_parts.append(delta.content)
+                yield delta
+            # log the message
+            msg = obj._invoke_msg(
+                fn=lambda: Message(role="assistant", content="".join(content_parts))
+            )
+            if obj.is_replay:
+                for word in (msg.content or "").split():
+                    yield Delta(content=word + " ")
         self._register_method(name, method)
 
     def register_nondet(self, fn: Callable[..., T], name: str | None = None):
