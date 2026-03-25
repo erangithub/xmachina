@@ -12,7 +12,7 @@ def get_weather(location: str) -> str:
 
 def main():
     llm = GeminiLLM(
-        model="gemini-3-flash-preview",
+        model="gemini-2.5-flash",
         api_key=os.environ.get("GEMINI_API_KEY"),
     )
 

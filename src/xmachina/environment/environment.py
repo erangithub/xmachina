@@ -120,6 +120,22 @@ class Environment:
         self._write(MessageEvent(message=result))
         return result
 
+    async def _amessage_event(self, fn):
+        """Invoke an async function that produces a Message. Writes a MessageEvent."""
+        if self.is_replay:
+            event = self._read()
+            if event is not None:
+                if not isinstance(event, MessageEvent):
+                    raise RuntimeError(f"Expected MessageEvent, got {type(event)}")
+                return event.message
+            if not self.continue_live:
+                raise RuntimeError("Replay exhausted")
+        result = await fn()
+        if not isinstance(result, Message):
+            raise RuntimeError(f"Expected Message, got {type(result)}")
+        self._write(MessageEvent(message=result))
+        return result
+
     def _call_event(self, fn_name: str, fn: Callable[[], T]) -> T:
         """Invoke a non-deterministic function. Writes a CallEvent."""
         if self.is_replay:
@@ -185,6 +201,14 @@ class Environment:
         
         self._register_method(name, call_llm)
 
+    def register_llm_afn(self, fn, name: str = "llm_acomplete"):
+        async def call_llm(obj, *args, **kwargs):
+            return await obj._amessage_event(
+                fn=lambda: fn(*args, **kwargs),
+            )
+        
+        self._register_method(name, call_llm)
+
     def register_llm_stream_fn(self, fn: Callable, name: str = "llm_stream"):
         def method(obj, messages, **kwargs):
             content_parts = []
@@ -193,6 +217,19 @@ class Environment:
                 yield delta
             
             obj._message_event(
+                fn=lambda: Message(role="assistant", content="".join(content_parts))
+            )
+        
+        self._register_method(name, method)
+
+    def register_llm_astream_fn(self, fn, name: str = "llm_stream"):
+        async def method(obj, messages, **kwargs):
+            content_parts = []
+            async for delta in fn(messages, **kwargs):
+                content_parts.append(delta.content)
+                yield delta
+            
+            await obj._amessage_event(
                 fn=lambda: Message(role="assistant", content="".join(content_parts))
             )
         

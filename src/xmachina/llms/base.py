@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Iterator
+from typing import Iterator, AsyncIterator
 from xmachina import Message, Delta
 
 
@@ -10,3 +10,10 @@ class LLM(ABC):
 
     def stream(self, messages: list[Message], **kwargs) -> Iterator[Delta]:
         raise NotImplementedError("Streaming not supported")
+
+    async def acomplete(self, messages: list[Message], **kwargs) -> Message:
+        return self.complete(messages, **kwargs)
+
+    async def astream(self, messages: list[Message], **kwargs) -> AsyncIterator[Delta]:
+        for delta in self.stream(messages, **kwargs):
+            yield delta
