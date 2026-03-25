@@ -5,8 +5,8 @@ from xmachina import Message, Delta
 
 class LLM(ABC):
     @abstractmethod
-    def complete(self, messages: list[Message]) -> Message:
+    def complete(self, messages: list[Message], **kwargs) -> Message:
         raise NotImplementedError
 
-    def stream(self, messages: list[Message]) -> Iterator[Delta]:
+    def stream(self, messages: list[Message], **kwargs) -> Iterator[Delta]:
         raise NotImplementedError("Streaming not supported")

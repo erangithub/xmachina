@@ -26,7 +26,6 @@ class Environment:
     def __init__(
         self,
         llm: LLM | None = None,
-        tools: list[Tool] | None = None,
         input_fn: Callable[[], str] | None = None,
         continue_live: bool = False,
         origin_node: EventNode | None = None,
@@ -47,8 +46,6 @@ class Environment:
                 self.register_llm_stream_fn(llm.stream)
         if input_fn is not None:
             self.register_input_fn(input_fn)
-        if tools:
-            self.register_tool_fns(tools)
 
         self.rewind(continue_live)
 
@@ -98,7 +95,7 @@ class Environment:
             forked_env = Environment(
                 continue_live=self.continue_live,
                 origin_node=self.write_head.fork(),
-                registered_fns=self.registered_fns,  # inherited
+                registered_fns=self.registered_fns,
             )
             child_envs.append(forked_env)
 
@@ -181,17 +178,17 @@ class Environment:
         setattr(self, name, MethodType(wrapper, self))
 
     def register_llm_fn(self, fn: Callable[..., Message], name: str = "llm_complete"):
-        self._register_method(
-            name,
-            lambda obj, *args, **kwargs: obj._message_event(
+        def call_llm(obj, *args, **kwargs):
+            return obj._message_event(
                 fn=lambda: fn(*args, **kwargs),
-            ),
-        )
+            )
+        
+        self._register_method(name, call_llm)
 
     def register_llm_stream_fn(self, fn: Callable, name: str = "llm_stream"):
-        def method(obj, messages):
+        def method(obj, messages, **kwargs):
             content_parts = []
-            for delta in fn(messages):
+            for delta in fn(messages, **kwargs):
                 content_parts.append(delta.content)
                 yield delta
             

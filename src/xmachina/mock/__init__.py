@@ -26,7 +26,7 @@ class ToolCallLLM(LLM):
         self.final_answer = final_answer
         self._call_id     = "call_001"
 
-    def complete(self, messages: list[Message]) -> Message:
+    def complete(self, messages: list[Message], **kwargs) -> Message:
         if any(m.role == "tool" for m in messages):
             return Message("assistant", self.final_answer)
         return Message(
@@ -41,8 +41,8 @@ class ToolCallLLM(LLM):
             ),
         )
 
-    def stream(self, messages: list[Message]) -> Iterator[Delta]:
-        response = self.complete(messages)
+    def stream(self, messages: list[Message], **kwargs) -> Iterator[Delta]:
+        response = self.complete(messages, **kwargs)
         if response.content:
             for word in response.content.split():
                 time.sleep(0.05)

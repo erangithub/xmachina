@@ -14,20 +14,24 @@ class GroqLLM(LLM):
             **kwargs,
         )
 
-    def complete(self, messages: list[Message]) -> Message:
+    def complete(self, messages: list[Message], **kwargs) -> Message:
+        tools = kwargs.get("tools")
         from .openai import _to_dict
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[_to_dict(m) for m in messages],
+            tools=tools,
         )
         msg = response.choices[0].message
         return Message(role=msg.role or "assistant", content=msg.content or "")
 
-    def stream(self, messages: list[Message]) -> Iterator[Delta]:
+    def stream(self, messages: list[Message], **kwargs) -> Iterator[Delta]:
+        tools = kwargs.get("tools")
         from .openai import _to_dict
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[_to_dict(m) for m in messages],
+            tools=tools,
             stream=True,
         )
         for chunk in response:

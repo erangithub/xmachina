@@ -27,10 +27,12 @@ class OpenAILLM(LLM):
         self.model = model
         self.client = OpenAI(api_key=api_key, base_url=base_url, **kwargs)
 
-    def complete(self, messages: list[Message]) -> Message:
+    def complete(self, messages: list[Message], **kwargs) -> Message:
+        tools = kwargs.get("tools")
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[_to_dict(m) for m in messages],
+            tools=tools,
         )
         choice = response.choices[0]
         msg = choice.message
@@ -43,10 +45,12 @@ class OpenAILLM(LLM):
             )
         return Message(role=msg.role or "assistant", content=content, tool_calls=tool_calls)
 
-    def stream(self, messages: list[Message]) -> Iterator[Delta]:
+    def stream(self, messages: list[Message], **kwargs) -> Iterator[Delta]:
+        tools = kwargs.get("tools")
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[_to_dict(m) for m in messages],
+            tools=tools,
             stream=True,
         )
         for chunk in response:
