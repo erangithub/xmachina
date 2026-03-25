@@ -42,6 +42,8 @@ class Environment:
 
         if llm is not None:
             self.register_llm_fn(llm.complete)
+            if hasattr(llm, 'acomplete'):
+                self.register_llm_afn(llm.acomplete)
             if hasattr(llm, 'stream'):
                 self.register_llm_stream_fn(llm.stream)
         if input_fn is not None:
@@ -81,6 +83,9 @@ class Environment:
     def history(self) -> Sequence:
         return Sequence(after_node=None, to_node=self.current_node)
 
+    def fork_history(self) -> Sequence:
+        return Sequence(after_node=self.origin_node, to_node=self.current_node)
+    
     def fork(self) -> Environment:
         forknode = self.current_node
         if forknode is None:
@@ -163,10 +168,13 @@ class Environment:
         msg = tool_method(**args)
         return msg.content
 
-    def add_message(self, role: str, content: str | None = None, **kwargs) -> str:
-        if not isinstance(role, str):
-            raise RuntimeError(f"Wrote type {type(role)} passed for 'role' argument in add_message, it must be a sstring.")
-        msg = Message(role=role, content=content, **kwargs)
+    def add_message(self, role: str | Message, content: str | None = None, **kwargs) -> str:
+        if isinstance(role, Message):
+            msg = role
+        elif not isinstance(role, str):
+            raise RuntimeError(f"Wrote type {type(role)} passed for 'role' argument in add_message, it must be a string.")
+        else:
+            msg = Message(role=role, content=content, **kwargs)
         return self._message_event(fn=lambda: msg)
 
     def add_user_message(self, text: str) -> str:
@@ -264,10 +272,7 @@ class Environment:
     def rewind(self, continue_live: bool | None = None):
         last_written_node = self.write_head.parent
         if last_written_node and last_written_node != self.origin_node:
-            self.readhead = Sequence(
-                after_node=self.origin_node,
-                to_node=self.write_head.parent,
-            ).iter_nodes()
+            self.readhead = self.fork_history().iter_nodes()
         else:
             self.readhead = None
 
@@ -275,3 +280,28 @@ class Environment:
             self.continue_live = continue_live
         self.child_index = 0
         self.lastread = self.origin_node
+
+    def print_tree(self):
+        """Print the event log as a tree."""
+        history = self.history()
+        self._print_tree_recursive(list(history.iter_nodes()), "", True)
+
+    def _print_tree_recursive(self, nodes: list, prefix: str, is_last: bool):
+        for i, node in enumerate(nodes):
+            node_is_last = (i == len(nodes) - 1)
+            connector = "└── " if node_is_last else "├── "
+            new_prefix = prefix + ("    " if node_is_last else "│   ")
+            
+            if isinstance(node.event, MessageEvent):
+                msg = node.event.message
+                content = msg.content[:50] + "..." if msg.content and len(msg.content) > 50 else msg.content
+                print(f"{prefix}{connector}[{msg.role}] {content}")
+            
+            child_forks = self.forks.get(node.id, [])
+            for j, fork_env in enumerate(child_forks):
+                fork_is_last = (j == len(child_forks) - 1)
+                fork_connector = "└── " if fork_is_last else "├── "
+                print(f"{new_prefix}{fork_connector}Fork {j+1}")
+                fork_prefix = new_prefix + ("    " if fork_is_last else "│   ")
+                fork_nodes = list(fork_env.fork_history().iter_nodes())
+                fork_env._print_tree_recursive(fork_nodes, fork_prefix, fork_is_last)

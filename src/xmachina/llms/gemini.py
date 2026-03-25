@@ -30,7 +30,18 @@ def _convert_message(msg: Message) -> types.Content:
                 )
             )
         )
-    return types.Content(role=msg.role, parts=parts)
+    role = msg.role
+    if role == "system":
+        role = "user"
+        if parts:
+            parts[0].text = f"System: {parts[0].text}"
+        else:
+            parts.append(types.Part(text="System message"))
+    elif role == "assistant":
+        role = "model"
+    elif role == "tool":
+        role = "function"
+    return types.Content(role=role, parts=parts)
 
 
 class GeminiLLM(LLM):
