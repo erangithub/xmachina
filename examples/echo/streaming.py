@@ -10,9 +10,9 @@ def main():
     env.register_input_fn(input)
     env.add_user_message("And I think to myself, what a wonderful world.")
 
-    env.rewind()
+    env.rewind(continue_live=True)
 
-    env.input()
+    print(env.input())
     full_content = ""
     for delta in env.llm_stream(build_context(env.history())):
         print(delta.content, end="", flush=True)
