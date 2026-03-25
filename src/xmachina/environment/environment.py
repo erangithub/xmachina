@@ -107,7 +107,7 @@ class Environment:
 
     # --- core invoke primitives ---
 
-    def _invoke_msg(self, fn: Callable[[], Message]) -> Message:
+    def _message_event(self, fn: Callable[[], Message]) -> Message:
         """Invoke a function that produces a Message. Writes a MessageEvent."""
         if self.is_replay:
             event = self._read()
@@ -123,7 +123,7 @@ class Environment:
         self._write(MessageEvent(message=result))
         return result
 
-    def _invoke_call(self, fn_name: str, fn: Callable[[], T]) -> T:
+    def _call_event(self, fn_name: str, fn: Callable[[], T]) -> T:
         """Invoke a non-deterministic function. Writes a CallEvent."""
         if self.is_replay:
             event = self._read()
@@ -154,7 +154,7 @@ class Environment:
         if not isinstance(role, str):
             raise RuntimeError(f"Wrote type {type(role)} passed for 'role' argument in add_message, it must be a sstring.")
         msg = Message(role=role, content=content, **kwargs)
-        result = self._invoke_msg(fn=lambda: msg)
+        result = self._message_event(fn=lambda: msg)
         return result.content
 
     def add_user_message(self, text: str) -> str:
@@ -174,7 +174,7 @@ class Environment:
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            return self._invoke_call(fn_name=fn_name, fn=lambda: fn(*args, **kwargs))
+            return self._call_event(fn_name=fn_name, fn=lambda: fn(*args, **kwargs))
         return wrapper
 
     def _register_method(self, name: str, wrapper: Callable):
@@ -184,7 +184,7 @@ class Environment:
     def register_llm_fn(self, fn: Callable[..., Message], name: str = "llm_complete"):
         self._register_method(
             name,
-            lambda obj, *args, **kwargs: obj._invoke_msg(
+            lambda obj, *args, **kwargs: obj._message_event(
                 fn=lambda: fn(*args, **kwargs),
             ),
         )
@@ -196,7 +196,7 @@ class Environment:
                 content_parts.append(delta.content)
                 yield delta
             # log the message
-            msg = obj._invoke_msg(
+            msg = obj._message_event(
                 fn=lambda: Message(role="assistant", content="".join(content_parts))
             )
             if obj.is_replay:
@@ -208,7 +208,7 @@ class Environment:
         name = name or fn.__name__
         self._register_method(
             name,
-            lambda obj, *args, **kwargs: obj._invoke_call(
+            lambda obj, *args, **kwargs: obj._call_event(
                 fn_name=name,
                 fn=lambda: fn(*args, **kwargs),
             ),
@@ -218,14 +218,14 @@ class Environment:
         wrapped = self._wrap_message(fn, "user")
         self._register_method(
             name,
-            lambda obj: obj._invoke_msg(fn=wrapped).content,
+            lambda obj: obj._message_event(fn=wrapped).content,
         )
 
     def register_tool_fns(self, tools: list[Tool]):
         for tool in tools:
             fn_name = f"tool.{tool.name}"
             def make_method(f, n):
-                return lambda obj, **kwargs: obj._invoke_msg(
+                return lambda obj, **kwargs: obj._message_event(
                     fn=lambda: Message(role="tool", content=f(**kwargs)),
                 )
             self._register_method(fn_name, make_method(tool.fn, fn_name))
