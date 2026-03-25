@@ -192,9 +192,10 @@ class Environment:
     def register_llm_stream_fn(self, fn: Callable, name: str = "llm_stream"):
         def method(obj, messages):
             content_parts = []
-            for delta in fn(messages):
-                content_parts.append(delta.content)
-                yield delta
+            if not obj.is_replay:
+                for delta in fn(messages):
+                    content_parts.append(delta.content)
+                    yield delta
             # log the message
             msg = obj._message_event(
                 fn=lambda: Message(role="assistant", content="".join(content_parts))
