@@ -26,13 +26,9 @@ def main():
     env.input()
 
     context = build_context(env.history())
-    response = env.llm_complete(context, tool_fns=[get_weather])
-
-    if response.tool_calls:
-        for tool_call in response.tool_calls:
-            env.call_tool(tool_call)
-        context = build_context(env.history())
-        response = env.llm_complete(context, tool_fns=[get_weather])
+    # Gemini handles tool execution internally when tool_fns is passed.
+    # XMachina logs the result — no manual call_tool loop needed.
+    env.llm_complete(context, tool_fns=[get_weather])
 
     for msg in env.history().iter_messages():
         print(f"[{msg.role}] {msg.content or msg.tool_calls}")

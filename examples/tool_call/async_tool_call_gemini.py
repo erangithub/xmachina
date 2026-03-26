@@ -27,6 +27,8 @@ async def main():
     env.input()
 
     context = build_context(env.history())
+    # Gemini handles tool execution internally when tool_fns is passed.
+    # XMachina logs the result — no manual call_tool loop needed.
     response = await env.llm_acomplete(context, tool_fns=[get_weather])
 
     print(f"Response: {response}")

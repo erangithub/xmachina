@@ -280,6 +280,10 @@ See `examples/` for more:
 - `interactive.py` — interactive input loop
 - `replay.py` — replay modes
 
+### nondet/
+
+- `example.py` — non-deterministic function replay
+
 ### swarm/
 
 - `swarm.py` — parallel forking with asyncio
