@@ -240,10 +240,20 @@ llm = EchoLLM()
 
 See `examples/` for more:
 
-- `examples/hello.py` — basic LLM call
-- `examples/summarize.py` — forking for summarization
-- `examples/tools.py` — tool use loop
-- `examples/replay.py` — all three replay modes
+### simple/
+- `hello.py` — basic LLM call
+- `streaming.py` — streaming responses
+- `interactive.py` — interactive input loop
+- `replay.py` — replay modes
+
+### swarm/
+- `swarm.py` — parallel forking with asyncio
+- `branch_summarize.py` — forking for summarization
+
+### tool_call/
+- `tool_call_echo.py` — tool calling with EchoLLM
+- `tool_call_gemini.py` — tool calling with Gemini (requires API key)
+- `async_tool_call_gemini.py` — async tool calling (requires API key)
 
 ---
 
