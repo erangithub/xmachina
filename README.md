@@ -174,6 +174,38 @@ Both branches share history. Both replay independently. Standard Python concurre
 
 ---
 
+## Time Travel
+
+The immutable log isn't just for replay — it's a complete history you can navigate.
+delorean.py shows a chatbot where the user can move backwards and forwards through their conversation history, then branch off in a new direction. No special infrastructure. Just the log, a read head, and two predicates.
+
+```python
+if user_input == "b":
+    # walk back to the previous user message
+    target = env.prev_node.find(lambda n: n.is_message("user"))
+    if target is None:
+        print('Nothing to go back to')
+        continue
+    env.rewind()
+    env.replay_until(lambda n, d=target.depth: n.depth >= d)
+
+if user_input == "n":
+    # walk forward to the next user message
+    current_depth = env.current_depth
+    env.replay_until(lambda n, d=current_depth: n.is_message("user") and n.depth > d)
+```
+
+Going back rewinds the log and replays up to a previous point. Going forward advances
+the read head to the next recorded user message. When the user types something new at
+any point — whether after going all the way back, or stopping partway through — the
+write head syncs to the current position and continues from there. Previous nodes
+remain in the log, unreachable but intact. A new branch grows without any explicit
+fork call.
+
+This is not a feature XMachina implements. It falls out of the model.
+
+---
+
 ## Tools
 
 ```python
@@ -294,6 +326,10 @@ See `examples/` for more:
 - `tool_call_echo.py` — tool calling with EchoLLM
 - `tool_call_gemini.py` — tool calling with Gemini (requires API key)
 - `async_tool_call_gemini.py` — async tool calling (requires API key)
+
+### time_travel/
+
+- `delorean.py` — navigate backwards and forwards through conversation history
 
 ---
 

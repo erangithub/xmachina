@@ -1,5 +1,5 @@
 import asyncio
-from xmachina import build_context, Message
+from xmachina import build_context
 from xmachina.llms import EchoLLM
 from xmachina.environment.environment import Environment
 
@@ -8,7 +8,7 @@ async def main():
     env = Environment(llm=EchoLLM(), continue_live=True)
     
     # 2. Add the Initial "Context" (The Trunk)
-    env.add_message(Message("user", "Analyze the impact of remote work on urban planning."))
+    env.add_message("user", "Analyze the impact of remote work on urban planning.")
 
     # 3. The "Map" Phase: Create explicit branches
     # We create them sequentially to lock in the log order

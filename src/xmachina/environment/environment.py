@@ -1,13 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Any
 from types import MethodType
 import json
 import functools
 
 from xmachina.eventlog import (
-    WriteHead, EventNode, ToolCall, ControlEvent, Message, Delta, Sequence,
-    MessageEvent, CallEvent, Event
+    WriteHead, ReadHead, EventNode, ToolCall, ControlEvent, ControlKind, Message, Delta, Sequence,
+    MessageEvent, CallEvent, TransientEvent, Event
 )
 from xmachina.llms.base import LLM
 
@@ -21,6 +21,8 @@ class Tool:
     fn: Callable[..., str]
     schema: dict
 
+def transient(value: Any):
+    return TransientEvent(value = value)
 
 class Environment:
     def __init__(
@@ -36,8 +38,10 @@ class Environment:
             setattr(self, name, MethodType(fn, self))
             self.registered_fns[name] = fn
 
+        if origin_node is None:
+            origin_node = WriteHead.start().fork()
         self.origin_node = origin_node
-        self.write_head = WriteHead(parent=origin_node)
+        self.write_head = WriteHead(prev=origin_node)
         self.forks: dict[str, list[Environment]] = {}
 
         if llm is not None:
@@ -50,46 +54,58 @@ class Environment:
             self.register_input_fn(input_fn)
 
         self.rewind(continue_live)
+        self.replay_stop_predicate = None
 
     @property
     def is_replay(self) -> bool:
-        return self.readhead is not None
+        return self.read_head.next and not self._is_replay_stop_on(self.read_head.next)
 
+    def _is_replay_stop_on(self, node: EventNode):
+        assert(node)
+        return (self.replay_stop_predicate and self.replay_stop_predicate(node))
+    
     def _write(self, event: Event):
+        if isinstance(event, TransientEvent):
+            return
+        
         if self.is_replay:
             raise RuntimeError("Cannot write in replay mode")
         self.write_head.append(event)
         self.child_index = 0
 
     def _read(self) -> MessageEvent | CallEvent | None:
-        if self.readhead is None:
-            return None
-        self.lastread = next(self.readhead, None)
+        assert(self.is_replay)
         self.child_index = 0
-        if self.lastread is None:
-            self.readhead = None
-            return None
-        while isinstance(self.lastread.event, ControlEvent):
-            self.lastread = next(self.readhead, None)
-            if self.lastread is None:
-                self.readhead = None
+        while isinstance(self.read_head.next.event, ControlEvent):
+            self.read_head.step()
+            if not self.is_replay:
                 return None
-        return self.lastread.event
+
+        self.read_head.step()
+        return self.read_head.prev.event    
 
     @property
-    def current_node(self) -> EventNode:
-        return (self.lastread if self.is_replay else self.write_head.parent) or self.origin_node
+    def prev_node(self):
+        return self.read_head.prev or self.write_head.prev
 
+    @property
+    def current_depth(self):
+        return self.prev_node.depth + 1
+    
     def history(self) -> Sequence:
-        return Sequence(after_node=None, to_node=self.current_node)
-
+        return Sequence(after_node=None, to_node=self.prev_node)
+    
+    def full_history(self) -> Sequence:
+        return Sequence(after_node=None, to_node=self.write_head.prev)
+    
     def fork_history(self) -> Sequence:
-        return Sequence(after_node=self.origin_node, to_node=self.current_node)
+        return Sequence(after_node=self.origin_node, to_node=self.prev_node)
+    
+    def full_fork_history(self) -> Sequence:
+        return Sequence(after_node=self.origin_node, to_node=self.write_head.prev)
     
     def fork(self) -> Environment:
-        forknode = self.current_node
-        if forknode is None:
-            raise RuntimeError("Cannot fork from empty log")
+        forknode = self.prev_node
         if forknode.id not in self.forks:
             self.forks[forknode.id] = []
         child_envs = self.forks[forknode.id]
@@ -109,20 +125,33 @@ class Environment:
 
     # --- core invoke primitives ---
 
-    def _message_event(self, fn: Callable[[], Message]) -> Message:
-        """Invoke a function that produces a Message. Writes a MessageEvent."""
+    def _message_event(self, fn: Callable[[], Message]) -> Message | str:
+        """Invoke a function that produces a Message. Writes a MessageEvent.
+        
+        If the function returns TransientEvent, it's returned without recording.
+        """
         if self.is_replay:
             event = self._read()
-            if event is not None:
-                if not isinstance(event, MessageEvent):
-                    raise RuntimeError(f"Expected MessageEvent, got {type(event)}")
-                return event.message
-            if not self.continue_live:
-                raise RuntimeError("Replay exhausted")
+            assert(event is not None)
+            if not isinstance(event, MessageEvent):
+                raise RuntimeError(f"Expected MessageEvent, got {type(event)}")
+            return event.message
+        elif not self.continue_live:
+            raise RuntimeError("Replay exhausted")
         result = fn()
+        if isinstance(result, TransientEvent):
+            return result
         if not isinstance(result, Message):
             raise RuntimeError(f"Expected Message, got {type(result)}")
+        
+        # Sync write_head to read_head when going live with a real message
+        if self.read_head.prev:
+            self.write_head.prev = self.read_head.prev
+            self.read_head.prev = self.read_head.next = None
+
         self._write(MessageEvent(message=result))
+        self.replay_stop_predicate = None
+        
         return result
 
     async def _amessage_event(self, fn):
@@ -168,13 +197,8 @@ class Environment:
         msg = tool_method(**args)
         return msg.content
 
-    def add_message(self, role: str | Message, content: str | None = None, **kwargs) -> str:
-        if isinstance(role, Message):
-            msg = role
-        elif not isinstance(role, str):
-            raise RuntimeError(f"Wrote type {type(role)} passed for 'role' argument in add_message, it must be a string.")
-        else:
-            msg = Message(role=role, content=content, **kwargs)
+    def add_message(self, role: str, content: str | None = None, **kwargs) -> str:
+        msg = Message(role=role, content=content, **kwargs)
         return self._message_event(fn=lambda: msg)
 
     def add_user_message(self, text: str) -> str:
@@ -253,12 +277,19 @@ class Environment:
             ),
         )
 
-    def register_input_fn(self, fn: Callable[[], str], name: str = "input"):
-        wrapped = self._wrap_message(fn, "user")
-        self._register_method(
-            name,
-            lambda obj: obj._message_event(fn=wrapped).content,
-        )
+    def register_input_fn(self, fn: Callable[..., str], name: str = "input"):
+        def wrapper(*args, **kwargs):
+            result = fn(*args, **kwargs)
+            if isinstance(result, TransientEvent):
+                return result
+            return Message(role="user", content=result)
+        
+        def method(obj, *args, **kwargs):
+            result = obj._message_event(fn=lambda: wrapper(*args, **kwargs))
+            if isinstance(result, TransientEvent):
+                return result.value
+            return result.content
+        self._register_method(name, method)
 
     def register_tool_fns(self, tools: list[Tool]):
         for tool in tools:
@@ -270,20 +301,23 @@ class Environment:
             self._register_method(fn_name, make_method(tool.fn, fn_name))
 
     def rewind(self, continue_live: bool | None = None):
-        last_written_node = self.write_head.parent
-        if last_written_node and last_written_node != self.origin_node:
-            self.readhead = self.fork_history().iter_nodes()
-        else:
-            self.readhead = None
-
         if continue_live is not None:
             self.continue_live = continue_live
         self.child_index = 0
-        self.lastread = self.origin_node
+        self.read_head = ReadHead(self.full_fork_history())
+
+    def go_live(self):
+        """Switch to live mode from the current node.
+        If the read_head was in the middle of replay, previous nodes will be orphaned.
+        """
+        self.replay_stop_predicate = lambda node: True
+        
+    def replay_until(self, fn: Callable[[EventNode], bool]):
+        self.replay_stop_predicate = fn
 
     def print_tree(self):
         """Print the event log as a tree."""
-        history = self.history()
+        history = self.full_fork_history()
         self._print_tree_recursive(list(history.iter_nodes()), "", True)
 
     def _print_tree_recursive(self, nodes: list, prefix: str, is_last: bool):
@@ -303,5 +337,5 @@ class Environment:
                 fork_connector = "└── " if fork_is_last else "├── "
                 print(f"{new_prefix}{fork_connector}Fork {j+1}")
                 fork_prefix = new_prefix + ("    " if fork_is_last else "│   ")
-                fork_nodes = list(fork_env.fork_history().iter_nodes())
+                fork_nodes = list(fork_env.full_fork_history().iter_nodes())
                 fork_env._print_tree_recursive(fork_nodes, fork_prefix, fork_is_last)

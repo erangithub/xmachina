@@ -1,3 +1,3 @@
-from xmachina.environment.environment import Tool, Environment
+from xmachina.environment.environment import Tool, Environment, transient
 
-__all__ = ["Tool", "Environment"]
+__all__ = ["Tool", "Environment", "transient"]
